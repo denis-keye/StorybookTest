@@ -28,10 +28,17 @@ async function collectStoryFiles(dir: string): Promise<string[]> {
 
 /** "components-button--fill" → absolute path to Button.stories.tsx (or null) */
 async function findStoryFile(storyId: string): Promise<string | null> {
-  // "components-button--fill"  → "button"
-  const componentPart = storyId.split('--')[0]
-    .replace(/^components?-/, '')
-    .replace(/-/g, '');                          // e.g. "contentsactionrow"
+  // "ui-button--default"       → segments ["ui","button"]
+  // "components-button--fill"  → segments ["components","button"]
+  // "components-action-row--x" → segments ["components","action","row"]
+  const segments = storyId.split('--')[0].split('-');
+
+  // Build candidates from progressively shorter suffixes
+  // e.g. ["ui","button"] → ["uibutton", "button"]
+  const candidates: string[] = [];
+  for (let i = 0; i < segments.length; i++) {
+    candidates.push(segments.slice(i).join(''));
+  }
 
   // Search both stories/ and components/**/
   const allFiles = [
@@ -39,10 +46,12 @@ async function findStoryFile(storyId: string): Promise<string | null> {
     ...await collectStoryFiles(COMPONENTS_DIR),
   ];
 
-  for (const filePath of allFiles) {
-    const file = path.basename(filePath);
-    const normalized = file.replace(/\.stories\.(tsx?|jsx?)$/, '').toLowerCase().replace(/-/g, '');
-    if (normalized === componentPart) return filePath;
+  for (const candidate of candidates) {
+    for (const filePath of allFiles) {
+      const file       = path.basename(filePath);
+      const normalized = file.replace(/\.stories\.(tsx?|jsx?)$/, '').toLowerCase().replace(/-/g, '');
+      if (normalized === candidate) return filePath;
+    }
   }
   return null;
 }
@@ -93,12 +102,60 @@ function patchStoryArg(src: string, exportName: string, prop: string, newValue: 
   return before + block + after;
 }
 
+// ─── Color conversion: oklch → hex ────────────────────────────────────────────
+// Tailwind v4 stores colors as oklch(L C H) or oklch(L C H / alpha).
+// The browser resolves these to rgb(), so the panel's hex-based token matching
+// needs an equivalent hex value to compare against getComputedStyle() output.
+
+function gammaEncode(c: number): number {
+  return c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+}
+
+function oklchToHex(oklchStr: string): string | null {
+  // Match: oklch(L C H) or oklch(L C H / A) — values may be decimals or %
+  const m = oklchStr.match(
+    /oklch\(\s*([\d.]+%?)\s+([\d.]+%?)\s+([\d.]+%?)\s*(?:\/\s*([\d.]+%?))?\s*\)/i,
+  );
+  if (!m) return null;
+
+  const parseVal = (s: string, pctMax = 1) =>
+    s.endsWith('%') ? (parseFloat(s) / 100) * pctMax : parseFloat(s);
+
+  const L = parseVal(m[1]);            // 0-1
+  const C = parseVal(m[2]);            // 0-0.4 typically
+  const H = parseFloat(m[3]);          // degrees
+  // m[4] is alpha — we ignore it for hex matching (assume opaque)
+
+  const hRad = (H * Math.PI) / 180;
+  const a    = C * Math.cos(hRad);
+  const b    = C * Math.sin(hRad);
+
+  // oklab → linear sRGB  (OKLab paper coefficients)
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+
+  const ll = l_ * l_ * l_;
+  const mm = m_ * m_ * m_;
+  const ss = s_ * s_ * s_;
+
+  const R = +4.0767416621 * ll - 3.3077115913 * mm + 0.2309699292 * ss;
+  const G = -1.2684380046 * ll + 2.6097574011 * mm - 0.3413193965 * ss;
+  const B = -0.0041960863 * ll - 0.7034186147 * mm + 1.7076147010 * ss;
+
+  const toU8 = (c: number) =>
+    Math.max(0, Math.min(255, Math.round(gammaEncode(c) * 255)));
+
+  const r = toU8(R), g = toU8(G), bl = toU8(B);
+  return '#' + [r, g, bl].map(n => n.toString(16).padStart(2, '0')).join('');
+}
+
 // ─── CSS custom property parser ────────────────────────────────────────────────
 
 export interface TokenEntry {
   name:     string;   // '--blue-500'
-  raw:      string;   // '#3b82f6' or 'var(--zinc-950)'
-  resolved: string;   // '#3b82f6' (always a primitive value)
+  raw:      string;   // 'oklch(0.205 0 0)' or 'var(--zinc-950)'
+  resolved: string;   // '#3b82f6' (always a primitive, hex for colors)
   group:    string;   // 'blue', 'content', 'spacing', etc.
   type:     'color' | 'size' | 'shadow' | 'font' | 'other';
 }
@@ -111,7 +168,46 @@ function parseTokens(css: string): TokenEntry[] {
   let currentGroup = 'Other';
   const groupComment = /\/\*[─\s]*([^─*]+?)\s*[─\s]*\*\//;
 
+  // Track block depth and whether we're in an editable context.
+  // Only collect vars from :root {} — skip @theme inline {}, .dark {}, and any
+  // other selector blocks.  We do a simple brace-depth tracker; the block type
+  // is identified by the most recent non-empty non-comment line before an `{`.
+  let braceDepth   = 0;
+  let inRootBlock  = false;  // true while inside :root { … }
+  let skipBlock    = false;  // true while inside @theme, .dark, or other blocks
+
   for (const line of lines) {
+    // Count brace transitions
+    const opens  = (line.match(/\{/g) ?? []).length;
+    const closes = (line.match(/\}/g) ?? []).length;
+
+    if (opens > 0) {
+      // Determine block type from this line (before entering)
+      const trimmed = line.trim();
+      if (braceDepth === 0) {
+        if (trimmed.startsWith(':root')) {
+          inRootBlock = true;
+          skipBlock   = false;
+        } else {
+          inRootBlock = false;
+          skipBlock   = true;
+        }
+      }
+      braceDepth += opens;
+    }
+
+    if (closes > 0) {
+      braceDepth -= closes;
+      if (braceDepth <= 0) {
+        braceDepth  = 0;
+        inRootBlock = false;
+        skipBlock   = false;
+      }
+    }
+
+    // Only process lines inside :root {}
+    if (!inRootBlock) continue;
+
     const commentMatch = line.match(groupComment);
     if (commentMatch) {
       const label = commentMatch[1].trim()
@@ -132,9 +228,14 @@ function parseTokens(css: string): TokenEntry[] {
   }
 
   // Build resolved values (iterative var() resolution)
+  // After resolving, convert oklch() primitives to hex so the panel's
+  // hex-based token-matching (from getComputedStyle) can find a match.
   const resolved = new Map<string, string>();
   for (const [name, value] of raw) {
-    if (!value.includes('var(')) resolved.set(name, value);
+    if (!value.includes('var(')) {
+      const hex = value.startsWith('oklch(') ? (oklchToHex(value) ?? value) : value;
+      resolved.set(name, hex);
+    }
   }
   let changed = true;
   while (changed) {

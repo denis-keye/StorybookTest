@@ -1,7 +1,6 @@
 import type { StorybookConfig } from '@storybook/react-vite';
 import path from 'node:path';
 import { contextPlugin } from './vite-context-plugin';
-import tailwindVite from '@tailwindcss/vite';
 
 const config: StorybookConfig = {
   stories: [
@@ -18,6 +17,7 @@ const config: StorybookConfig = {
   },
   async viteFinal(config) {
     const { mergeConfig } = await import('vite');
+    const { default: tailwindVite } = await import('@tailwindcss/vite');
     return mergeConfig(config, {
       plugins: [
         tailwindVite(),

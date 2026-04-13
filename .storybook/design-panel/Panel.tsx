@@ -364,6 +364,12 @@ export function DesignPanel({ active }: { active: boolean }) {
   const [saveReport,  setSaveReport]  = useState<{ entries: { label: string; file: string; ok: boolean }[] } | null>(null);
   const [savedCount,  setSavedCount]  = useState(0);
 
+  // ── Add-variant form state ────────────────────────────────────────────────────
+  const [variantOpen,   setVariantOpen]   = useState(false);
+  const [variantName,   setVariantName]   = useState('');
+  const [variantStatus, setVariantStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
+  const [variantError,  setVariantError]  = useState('');
+
   // ── PR form state ─────────────────────────────────────────────────────────────
   const [prOpen,    setPrOpen]    = useState(false);
   const [prTitle,   setPrTitle]   = useState('');
@@ -400,6 +406,19 @@ export function DesignPanel({ active }: { active: boolean }) {
     setLayerNames({});
     setPendingText(null);
     setSaveReport(null);
+    setVariantOpen(false);
+    setVariantName('');
+    setVariantStatus('idle');
+
+    // Load persisted layer-name annotations for this story
+    fetch(`/api/layer-names?storyId=${storyId}`)
+      .then(r => r.json())
+      .then((d: { layerNames?: Record<string, string> }) => {
+        if (d.layerNames && Object.keys(d.layerNames).length > 0) {
+          setLayerNames(d.layerNames);
+        }
+      })
+      .catch(() => {});
 
     // On the very first story shown in this browser session, clear any stale
     // overrides that survived a server restart via WS reconnect.
@@ -479,6 +498,21 @@ export function DesignPanel({ active }: { active: boolean }) {
       }
     }
 
+    // 3. Layer name annotations → .stories.meta.json
+    if (Object.keys(layerNames).length > 0) {
+      try {
+        const r = await fetch('/api/layer-names', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ storyId, layerNames }),
+        });
+        const d = await r.json() as { ok?: boolean; file?: string; error?: string };
+        entries.push({ label: `Layer names (${Object.keys(layerNames).length})`, file: d.file ?? 'meta', ok: !!d.ok });
+      } catch {
+        entries.push({ label: 'Layer names', file: 'meta', ok: false });
+      }
+    }
+
     setSaving(false);
     setSaveReport({ entries });
 
@@ -551,6 +585,32 @@ export function DesignPanel({ active }: { active: boolean }) {
     }
   }, [prTitle, prBody, prLoading]);
 
+  // ── Add story variant ──────────────────────────────────────────────────────
+  const addVariant = useCallback(async () => {
+    if (!variantName.trim() || variantStatus === 'loading') return;
+    setVariantStatus('loading');
+    setVariantError('');
+    try {
+      const res = await fetch('/api/add-story', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storyId, name: variantName.trim() }),
+      });
+      const d = await res.json() as { ok?: boolean; exportName?: string; error?: string };
+      if (d.ok) {
+        setVariantStatus('done');
+        setVariantName('');
+        setTimeout(() => { setVariantStatus('idle'); setVariantOpen(false); }, 1800);
+      } else {
+        setVariantError(d.error ?? 'Unknown error');
+        setVariantStatus('error');
+      }
+    } catch (e) {
+      setVariantError(String(e));
+      setVariantStatus('error');
+    }
+  }, [variantName, variantStatus, storyId]);
+
   if (!active) return null;
 
   // ── Resolve style values to tokens ─────────────────────────────────────────
@@ -590,7 +650,17 @@ export function DesignPanel({ active }: { active: boolean }) {
           <div style={{ borderBottom: '1px solid #30363d', flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px' }}>
               <div>
-                <div style={{ fontWeight: 700, fontSize: 12, color: '#e6edf3' }}>{componentName}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ fontWeight: 700, fontSize: 12, color: '#e6edf3' }}>{componentName}</div>
+                  {storyId && (
+                    <button
+                      onClick={() => { setVariantOpen(o => !o); setVariantStatus('idle'); setVariantError(''); }}
+                      title="Add a new story variant"
+                      style={{ background: 'none', border: '1px dashed #30363d', borderRadius: 3, color: '#6e7681', fontSize: 10, padding: '1px 5px', cursor: 'pointer', lineHeight: 1.4 }}>
+                      ＋
+                    </button>
+                  )}
+                </div>
                 {/* Always show component root size; add selected-layer size when a non-root layer is active */}
                 {tree && (
                   <div style={{ fontSize: 10, color: '#6e7681', marginTop: 1 }}>
@@ -636,6 +706,39 @@ export function DesignPanel({ active }: { active: boolean }) {
                 )}
               </div>
             </div>
+
+            {/* ── Add variant form ──────────────────────────────────────── */}
+            {variantOpen && (
+              <div style={{ borderTop: '1px solid #21262d', padding: '8px 12px' }}>
+                <div style={{ fontSize: 10, color: '#8b949e', marginBottom: 5 }}>New story variant — copies current args</div>
+                {variantStatus === 'done' ? (
+                  <div style={{ color: '#3fb950', fontSize: 11 }}>✓ Added — Storybook will reload automatically</div>
+                ) : (
+                  <>
+                    {variantStatus === 'error' && (
+                      <div style={{ color: '#f85149', fontSize: 10, marginBottom: 5 }}>{variantError}</div>
+                    )}
+                    <div style={{ display: 'flex', gap: 5 }}>
+                      <input
+                        autoFocus
+                        placeholder='Variant name, e.g. "Dark" or "Large"'
+                        value={variantName}
+                        onChange={e => setVariantName(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') addVariant(); if (e.key === 'Escape') setVariantOpen(false); }}
+                        style={{ flex: 1, padding: '4px 7px', background: '#0d1117', border: '1px solid #30363d', borderRadius: 4, color: '#c9d1d9', fontSize: 11, fontFamily: 'inherit', outline: 'none' }}
+                      />
+                      <button
+                        disabled={!variantName.trim() || variantStatus === 'loading'}
+                        onClick={addVariant}
+                        style={{ ...s.btn, background: variantName.trim() ? '#238636' : 'transparent', color: variantName.trim() ? '#fff' : '#6e7681', borderColor: variantName.trim() ? '#2ea043' : '#30363d' }}>
+                        {variantStatus === 'loading' ? '…' : 'Add'}
+                      </button>
+                      <button onClick={() => setVariantOpen(false)} style={s.btn}>✕</button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
 
             {/* ── Save report ───────────────────────────────────────────── */}
             {saveReport && (

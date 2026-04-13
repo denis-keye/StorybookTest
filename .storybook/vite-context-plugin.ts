@@ -430,6 +430,129 @@ export function contextPlugin(): Plugin {
           }
         }
 
+        // ── /api/layer-names ──────────────────────────────────────────────
+        // Persists layer rename annotations alongside the story file.
+        // Format: stories/Button.stories.meta.json  { layerNames: { "root": "Container", ... } }
+
+        if (url.pathname === '/api/layer-names') {
+          if (req.method === 'GET') {
+            const storyId = url.searchParams.get('storyId');
+            if (!storyId) {
+              res.statusCode = 400;
+              return res.end(JSON.stringify({ error: 'storyId required' }));
+            }
+            const storyFile = await findStoryFile(storyId);
+            if (!storyFile) {
+              res.statusCode = 200;
+              return res.end(JSON.stringify({}));
+            }
+            const metaFile = storyFile.replace(/\.stories\.(tsx?|jsx?)$/, '.stories.meta.json');
+            try {
+              const raw = await fs.readFile(metaFile, 'utf-8');
+              res.statusCode = 200;
+              return res.end(raw);
+            } catch {
+              res.statusCode = 200;
+              return res.end('{}');
+            }
+          }
+
+          if (req.method === 'POST') {
+            const chunks: Buffer[] = [];
+            req.on('data', (c: Buffer) => chunks.push(c));
+            req.on('end', async () => {
+              try {
+                const body = JSON.parse(Buffer.concat(chunks).toString()) as {
+                  storyId: string;
+                  layerNames: Record<string, string>;
+                };
+                const storyFile = await findStoryFile(body.storyId);
+                if (!storyFile) {
+                  res.statusCode = 404;
+                  return res.end(JSON.stringify({ error: 'Story file not found' }));
+                }
+                const metaFile = storyFile.replace(/\.stories\.(tsx?|jsx?)$/, '.stories.meta.json');
+                // Merge with existing data so other story variants' names are preserved
+                let existing: Record<string, unknown> = {};
+                try { existing = JSON.parse(await fs.readFile(metaFile, 'utf-8')); } catch {}
+                const merged = { ...existing, layerNames: body.layerNames };
+                await fs.writeFile(metaFile, JSON.stringify(merged, null, 2) + '\n');
+                res.statusCode = 200;
+                res.end(JSON.stringify({ ok: true, file: path.relative(process.cwd(), metaFile) }));
+              } catch (e) {
+                res.statusCode = 500;
+                res.end(JSON.stringify({ error: String(e) }));
+              }
+            });
+            return;
+          }
+        }
+
+        // ── /api/add-story  POST { storyId, name, args? } ────────────────
+        // Appends a new named export to an existing story file.
+
+        if (url.pathname === '/api/add-story' && req.method === 'POST') {
+          const chunks: Buffer[] = [];
+          req.on('data', (c: Buffer) => chunks.push(c));
+          req.on('end', async () => {
+            try {
+              const { storyId, name, args = {} } = JSON.parse(
+                Buffer.concat(chunks).toString(),
+              ) as { storyId: string; name: string; args?: Record<string, unknown> };
+
+              if (!name?.trim()) {
+                res.statusCode = 400;
+                return res.end(JSON.stringify({ error: 'name is required' }));
+              }
+
+              // "dark mode"  → "DarkMode"
+              const exportName = name.trim()
+                .split(/[\s_-]+/)
+                .map(w => w[0]?.toUpperCase() + w.slice(1))
+                .join('');
+
+              const filePath = await findStoryFile(storyId);
+              if (!filePath) {
+                res.statusCode = 404;
+                return res.end(JSON.stringify({ error: 'Story file not found' }));
+              }
+
+              let src = await fs.readFile(filePath, 'utf-8');
+              if (src.includes(`export const ${exportName}`)) {
+                res.statusCode = 409;
+                return res.end(JSON.stringify({ error: `Story "${exportName}" already exists` }));
+              }
+
+              // Derive current export's args to use as a base
+              const baseExport = storyExportName(storyId);
+              const argsEntries = Object.entries(args);
+              let argsBlock = '';
+              if (argsEntries.length > 0) {
+                const inner = argsEntries.map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(', ');
+                argsBlock = `{ args: { ...${baseExport}.args, ${inner} } }`;
+              } else {
+                argsBlock = `{ args: { ...${baseExport}.args } }`;
+              }
+
+              // Append to end of file (before any trailing newline)
+              const newExport = `\nexport const ${exportName}: Story = ${argsBlock};\n`;
+              src = src.trimEnd() + '\n' + newExport;
+              await fs.writeFile(filePath, src);
+
+              res.statusCode = 200;
+              res.end(JSON.stringify({
+                ok: true,
+                exportName,
+                file: path.relative(process.cwd(), filePath),
+              }));
+            } catch (e) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ error: String(e) }));
+            }
+          });
+          return;
+        }
+
         // ── /api/create-pr  POST { title, body?, branch? } ───────────────
 
         if (url.pathname === '/api/create-pr' && req.method === 'POST') {
@@ -450,17 +573,27 @@ export function contextPlugin(): Plugin {
               }
 
               // ── Detect changed design files ──────────────────────────────
-              const rawDiff = execSync('git diff HEAD --name-only', { cwd: root })
-                .toString().trim();
-              const changedFiles = rawDiff
-                .split('\n')
-                .map(f => f.trim())
-                .filter(f => f && (f.endsWith('.css') || f.includes('.stories.')));
+              // Include both modified tracked files AND new untracked files
+              // so that newly added stories / context / meta files are picked up.
+              function isDesignFile(f: string) {
+                return Boolean(f) && (
+                  f.endsWith('.css')          ||   // token files
+                  f.includes('.stories.')     ||   // story files (any ext)
+                  f.endsWith('.context.json') ||   // component context data
+                  f.endsWith('.meta.json')         // layer-name annotations
+                );
+              }
+              const trackedDiff  = execSync('git diff HEAD --name-only', { cwd: root }).toString().trim();
+              const untrackedRaw = execSync('git ls-files --others --exclude-standard', { cwd: root }).toString().trim();
+              const changedFiles = [
+                ...trackedDiff.split('\n'),
+                ...untrackedRaw.split('\n'),
+              ].map(f => f.trim()).filter(isDesignFile);
 
               if (changedFiles.length === 0) {
                 res.statusCode = 400;
                 return res.end(JSON.stringify({
-                  error: 'No design changes detected. Save some token or story changes first.',
+                  error: 'No design changes detected. Save some token, story, or layer-name changes first.',
                 }));
               }
 

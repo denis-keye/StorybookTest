@@ -6,10 +6,10 @@ const channel = addons.getChannel();
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function rgbToHex(rgb: string): string {
-  const m = rgb.match(/(\d+)/g);
+  const m = rgb.match(/([\d.]+)/g);
   if (!m || m.length < 3) return rgb;
   return '#' + m.slice(0, 3)
-    .map(n => parseInt(n, 10).toString(16).padStart(2, '0'))
+    .map(n => Math.round(parseFloat(n)).toString(16).padStart(2, '0'))
     .join('');
 }
 
@@ -143,15 +143,43 @@ function getElementByPath(path: number[]): Element | null {
   return el;
 }
 
+// Extract Tailwind semantic token name from a class like "bg-destructive/10" → "--destructive"
+// or "text-primary-foreground" → "--primary-foreground", etc.
+function tailwindClassToToken(cls: string): { prop: 'bg' | 'text' | 'border'; token: string } | null {
+  const m = cls.match(/^(bg|text|border)-([\w-]+?)(?:\/[\d.]+)?$/);
+  if (!m) return null;
+  const [, type, name] = m;
+  // Skip pure utility names that aren't CSS vars (e.g. bg-white, text-xs)
+  if (['white', 'black', 'transparent', 'current', 'inherit'].includes(name)) return null;
+  if (/^\d/.test(name)) return null; // numeric sizes like text-xs
+  return { prop: type as 'bg' | 'text' | 'border', token: `--${name}` };
+}
+
 function readStyles(el: Element): Record<string, string> | null {
   if (!(el instanceof HTMLElement)) return null;
   const c    = getComputedStyle(el);
   const rect = el.getBoundingClientRect();
   const isLeaf = el.childElementCount === 0;
+
+  // Walk up from el to find the first element with a Tailwind bg/text/border class
+  // (the element itself first, then its class string)
+  let bgToken = '', textToken = '', borderToken = '';
+  const classes = Array.from(el.classList);
+  for (const cls of classes) {
+    const t = tailwindClassToToken(cls);
+    if (!t) continue;
+    if (t.prop === 'bg'     && !bgToken)     bgToken     = t.token;
+    if (t.prop === 'text'   && !textToken)   textToken   = t.token;
+    if (t.prop === 'border' && !borderToken) borderToken = t.token;
+  }
+
   return {
     backgroundColor: rgbToHex(c.backgroundColor),
     color:           rgbToHex(c.color),
     borderColor:     rgbToHex(c.borderColor),
+    bgToken,
+    textToken,
+    borderToken,
     borderWidth:     c.borderWidth,
     borderStyle:     c.borderStyle,
     borderRadius:    c.borderRadius,
@@ -254,6 +282,30 @@ channel.on('DESIGN/RESET_PROP', (prop: string) => {
 channel.on('DESIGN/RESET_ALL', () => {
   Object.keys(_overrideMap).forEach(k => delete _overrideMap[k]);
   _flushOverrides();
+});
+
+// Resolve a list of CSS custom property names using the browser's own
+// colour pipeline.  getComputedStyle(root).getPropertyValue('--foo') returns
+// the raw declaration (e.g. "oklch(0.577 0.245 27.325)") — it does NOT resolve
+// colour functions.  To get the actual rendered hex we create a hidden element,
+// apply `background-color: var(--foo)` to it, and read back getComputedStyle
+// .backgroundColor which the browser fully resolves to rgb().
+channel.on('DESIGN/RESOLVE_TOKENS', (names: string[]) => {
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;';
+  document.body.appendChild(probe);
+
+  const resolved: Record<string, string> = {};
+  for (const name of names) {
+    probe.style.backgroundColor = `var(${name})`;
+    const computed = getComputedStyle(probe).backgroundColor;
+    if (computed && computed !== 'rgba(0, 0, 0, 0)' && computed !== 'transparent') {
+      resolved[name] = rgbToHex(computed);
+    }
+  }
+
+  document.body.removeChild(probe);
+  channel.emit('DESIGN/RESOLVED_TOKENS', resolved);
 });
 
 export const decorators: Decorator[] = [];

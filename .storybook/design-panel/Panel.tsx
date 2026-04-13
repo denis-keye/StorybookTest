@@ -2,6 +2,13 @@ import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from
 import { addons, useStorybookApi } from '@storybook/manager-api';
 import type { TreeNode } from './preview';
 
+// When building the static Storybook for Vercel, set STORYBOOK_API_BASE to the
+// Next.js deployment URL (e.g. https://my-app.vercel.app) so API calls route to
+// the serverless functions instead of the local Vite plugin.
+const API_BASE = (typeof process !== 'undefined' && process.env.STORYBOOK_API_BASE)
+  ? process.env.STORYBOOK_API_BASE.replace(/\/$/, '')
+  : '';
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface TokenEntry {
@@ -16,6 +23,9 @@ interface ElementStyles {
   backgroundColor: string;
   color:           string;
   borderColor:     string;
+  bgToken:         string;
+  textToken:       string;
+  borderToken:     string;
   borderWidth:     string;
   borderStyle:     string;
   borderRadius:    string;
@@ -35,7 +45,13 @@ interface ElementStyles {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function findToken(tokens: TokenEntry[], hex: string) {
+function findToken(tokens: TokenEntry[], hex: string, classHint?: string) {
+  // If the preview gave us a direct class-derived token name (e.g. "--destructive"
+  // from "bg-destructive/10"), prefer that — it survives opacity modifiers.
+  if (classHint) {
+    const byName = tokens.find(t => t.name === classHint);
+    if (byName) return byName;
+  }
   const norm = hex.toLowerCase().trim();
   if (!norm || norm === 'rgba(0, 0, 0, 0)' || norm === 'transparent') return undefined;
   const matches = tokens.filter(t => t.resolved.toLowerCase() === norm);
@@ -391,10 +407,36 @@ export function DesignPanel({ active }: { active: boolean }) {
   // them once on the very first story load so stale saves can't corrupt tokens.
   const didInitRef = useRef(false);
 
-  // ── Load all tokens ─────────────────────────────────────────────────────────
+  // ── Load all tokens, then re-resolve colors via the browser ─────────────────
+  // The server converts oklch→hex with its own math which can differ slightly
+  // from what the browser renders.  After loading, we ask the preview iframe to
+  // resolve each CSS var through getComputedStyle so token matching is exact.
   useEffect(() => {
-    fetch('/api/tokens').then(r => r.json()).then(setTokens).catch(() => {});
+    fetch(`${API_BASE}/api/tokens`)
+      .then(r => r.json())
+      .then((raw: TokenEntry[]) => {
+        setTokens(raw);
+        const colorNames = raw
+          .filter(t => t.type === 'color')
+          .map(t => t.name);
+        if (colorNames.length > 0) {
+          channel.emit('DESIGN/RESOLVE_TOKENS', colorNames);
+        }
+      })
+      .catch(() => {});
   }, []);
+
+  // Patch token resolved values once the preview iframe returns browser-resolved hex.
+  useEffect(() => {
+    const handler = (browserResolved: Record<string, string>) => {
+      setTokens(prev => prev.map(t => {
+        const br = browserResolved[t.name];
+        return br ? { ...t, resolved: br } : t;
+      }));
+    };
+    channel.on('DESIGN/RESOLVED_TOKENS', handler);
+    return () => { channel.off('DESIGN/RESOLVED_TOKENS', handler); };
+  }, [channel]);
 
   // ── Build tree & inspect root when story changes ─────────────────────────
   useEffect(() => {
@@ -411,7 +453,7 @@ export function DesignPanel({ active }: { active: boolean }) {
     setVariantStatus('idle');
 
     // Load persisted layer-name annotations for this story
-    fetch(`/api/layer-names?storyId=${storyId}`)
+    fetch(`${API_BASE}/api/layer-names?storyId=${storyId}`)
       .then(r => r.json())
       .then((d: { layerNames?: Record<string, string> }) => {
         if (d.layerNames && Object.keys(d.layerNames).length > 0) {
@@ -467,7 +509,7 @@ export function DesignPanel({ active }: { active: boolean }) {
     // 1. Token overrides → global.css
     for (const o of overrides) {
       try {
-        await fetch('/api/tokens', {
+        await fetch(`${API_BASE}/api/tokens`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: o.prop, value: o.value }),
@@ -481,7 +523,7 @@ export function DesignPanel({ active }: { active: boolean }) {
     // 2. Text / story-arg change → story file
     if (pendingText) {
       try {
-        const res = await fetch('/api/story-args', {
+        const res = await fetch(`${API_BASE}/api/story-args`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ storyId, prop: pendingText.prop, value: pendingText.value }),
@@ -501,7 +543,7 @@ export function DesignPanel({ active }: { active: boolean }) {
     // 3. Layer name annotations → .stories.meta.json
     if (Object.keys(layerNames).length > 0) {
       try {
-        const r = await fetch('/api/layer-names', {
+        const r = await fetch(`${API_BASE}/api/layer-names`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ storyId, layerNames }),
@@ -554,7 +596,7 @@ export function DesignPanel({ active }: { active: boolean }) {
   }, [channel]);
 
   const saveToFile = useCallback(async (prop: string, value: string) => {
-    await fetch('/api/tokens', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: prop, value }) }).catch(() => {});
+    await fetch(`${API_BASE}/api/tokens`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: prop, value }) }).catch(() => {});
     setSaved(prop);
     setSavedCount(c => c + 1);
     setTimeout(() => setSaved(null), 2000);
@@ -566,7 +608,7 @@ export function DesignPanel({ active }: { active: boolean }) {
     setPrLoading(true);
     setPrResult(null);
     try {
-      const res = await fetch('/api/create-pr', {
+      const res = await fetch(`${API_BASE}/api/create-pr`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: prTitle.trim(), body: prBody.trim() }),
@@ -591,7 +633,7 @@ export function DesignPanel({ active }: { active: boolean }) {
     setVariantStatus('loading');
     setVariantError('');
     try {
-      const res = await fetch('/api/add-story', {
+      const res = await fetch(`${API_BASE}/api/add-story`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ storyId, name: variantName.trim() }),
@@ -614,9 +656,9 @@ export function DesignPanel({ active }: { active: boolean }) {
   if (!active) return null;
 
   // ── Resolve style values to tokens ─────────────────────────────────────────
-  const fillEntry   = styles ? findToken(tokens, styles.backgroundColor) : undefined;
-  const strokeEntry = styles ? findToken(tokens, styles.borderColor)     : undefined;
-  const textEntry   = styles ? findToken(tokens, styles.color)           : undefined;
+  const fillEntry   = styles ? findToken(tokens, styles.backgroundColor, styles.bgToken     || undefined) : undefined;
+  const strokeEntry = styles ? findToken(tokens, styles.borderColor,     styles.borderToken || undefined) : undefined;
+  const textEntry   = styles ? findToken(tokens, styles.color,           styles.textToken   || undefined) : undefined;
 
   // Use the ACTUAL detected token as the override target — not generic fallbacks.
   // This ensures live changes affect the correct CSS var (e.g. --blue-50 for

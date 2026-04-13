@@ -49,6 +49,10 @@
 }
 
 :root {
+  --border-primary: var(--sidebar-accent-foreground);
+  --bg-primary: var(--destructive);
+  --bg-primary: var(--destructive);
+  --bg-primary: var(--destructive);
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);

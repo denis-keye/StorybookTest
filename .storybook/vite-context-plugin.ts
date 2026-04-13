@@ -1,6 +1,7 @@
 import type { Plugin } from 'vite';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
 
 const COMPONENTS_DIR = path.resolve(process.cwd(), 'components');
 const TOKENS_FILE    = path.resolve(process.cwd(), 'app/globals.css');
@@ -427,6 +428,123 @@ export function contextPlugin(): Plugin {
             });
             return;
           }
+        }
+
+        // ── /api/create-pr  POST { title, body?, branch? } ───────────────
+
+        if (url.pathname === '/api/create-pr' && req.method === 'POST') {
+          const chunks: Buffer[] = [];
+          req.on('data', (c: Buffer) => chunks.push(c));
+          req.on('end', async () => {
+            const root = process.cwd();
+            let originalBranch = 'main';
+            let newBranch = '';
+            try {
+              const { title, body = '', branch: customBranch } = JSON.parse(
+                Buffer.concat(chunks).toString(),
+              ) as { title: string; body?: string; branch?: string };
+
+              if (!title?.trim()) {
+                res.statusCode = 400;
+                return res.end(JSON.stringify({ error: 'title is required' }));
+              }
+
+              // ── Detect changed design files ──────────────────────────────
+              const rawDiff = execSync('git diff HEAD --name-only', { cwd: root })
+                .toString().trim();
+              const changedFiles = rawDiff
+                .split('\n')
+                .map(f => f.trim())
+                .filter(f => f && (f.endsWith('.css') || f.includes('.stories.')));
+
+              if (changedFiles.length === 0) {
+                res.statusCode = 400;
+                return res.end(JSON.stringify({
+                  error: 'No design changes detected. Save some token or story changes first.',
+                }));
+              }
+
+              // ── GitHub token ─────────────────────────────────────────────
+              const token = process.env.GITHUB_TOKEN;
+              if (!token) {
+                res.statusCode = 400;
+                return res.end(JSON.stringify({
+                  error: 'GITHUB_TOKEN not set. Add it to your .env.local file.',
+                }));
+              }
+
+              // ── Detect repo (owner/repo) from remote URL ─────────────────
+              const remoteUrl = execSync('git remote get-url origin', { cwd: root })
+                .toString().trim();
+              const repoMatch = remoteUrl.match(/github\.com[:/](.+?)(?:\.git)?$/);
+              if (!repoMatch) {
+                res.statusCode = 400;
+                return res.end(JSON.stringify({ error: 'Could not parse GitHub repo from remote URL' }));
+              }
+              const repoPath = repoMatch[1]; // "owner/repo"
+
+              // ── Current branch (PR will target this) ─────────────────────
+              originalBranch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: root })
+                .toString().trim();
+
+              // ── Create feature branch ────────────────────────────────────
+              const ts = Date.now().toString(36);
+              newBranch = customBranch?.trim() || `design/${ts}`;
+              execSync(`git checkout -b ${newBranch}`, { cwd: root });
+
+              // ── Stage only design files & commit ─────────────────────────
+              for (const f of changedFiles) {
+                execSync(`git add -- "${f}"`, { cwd: root });
+              }
+              const safeTitle = title.replace(/"/g, "'").replace(/`/g, "'");
+              execSync(`git commit -m "${safeTitle}"`, { cwd: root });
+
+              // ── Push with token auth ─────────────────────────────────────
+              // Build an authenticated HTTPS remote URL regardless of whether
+              // origin is ssh or https.
+              const authRemote = remoteUrl.startsWith('git@')
+                ? remoteUrl.replace('git@github.com:', `https://${token}@github.com/`)
+                : remoteUrl.replace('https://github.com/', `https://${token}@github.com/`);
+              execSync(`git push "${authRemote}" "${newBranch}"`, { cwd: root });
+
+              // ── Create PR via GitHub REST API ────────────────────────────
+              const prBody = `${body}\n\n---\n*Created from the Storybook Design Panel*`;
+              const apiRes = await fetch(
+                `https://api.github.com/repos/${repoPath}/pulls`,
+                {
+                  method: 'POST',
+                  headers: {
+                    Authorization: `token ${token}`,
+                    'Content-Type': 'application/json',
+                    Accept: 'application/vnd.github.v3+json',
+                  },
+                  body: JSON.stringify({
+                    title,
+                    body: prBody,
+                    head: newBranch,
+                    base: originalBranch,
+                  }),
+                },
+              );
+
+              if (!apiRes.ok) {
+                const err = await apiRes.json() as { message?: string };
+                throw new Error(err.message ?? `GitHub API ${apiRes.status}`);
+              }
+
+              const pr = await apiRes.json() as { html_url: string; number: number };
+
+              res.statusCode = 200;
+              res.end(JSON.stringify({ ok: true, url: pr.html_url, branch: newBranch, prNumber: pr.number }));
+            } catch (e) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ error: String(e) }));
+            } finally {
+              // Always restore the original branch, even on error
+              try { execSync(`git checkout ${originalBranch}`, { cwd: root }); } catch {}
+            }
+          });
+          return;
         }
 
         next();

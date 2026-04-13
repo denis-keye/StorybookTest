@@ -362,6 +362,14 @@ export function DesignPanel({ active }: { active: boolean }) {
   const [pendingText, setPendingText] = useState<{ path: number[]; prop: string; value: string } | null>(null);
   const [saving,      setSaving]      = useState(false);
   const [saveReport,  setSaveReport]  = useState<{ entries: { label: string; file: string; ok: boolean }[] } | null>(null);
+  const [savedCount,  setSavedCount]  = useState(0);
+
+  // ── PR form state ─────────────────────────────────────────────────────────────
+  const [prOpen,    setPrOpen]    = useState(false);
+  const [prTitle,   setPrTitle]   = useState('');
+  const [prBody,    setPrBody]    = useState('');
+  const [prLoading, setPrLoading] = useState(false);
+  const [prResult,  setPrResult]  = useState<{ url?: string; error?: string } | null>(null);
 
   const storyData = api.getCurrentStoryData();
   const storyId   = storyData?.id ?? '';
@@ -478,6 +486,7 @@ export function DesignPanel({ active }: { active: boolean }) {
     // but keep the INLINE overrides alive briefly so there is no visual flash
     // between the save and Vite's CSS HMR replacing the stylesheet value.
     if (entries.every(e => e.ok)) {
+      setSavedCount(c => c + entries.length);
       setOverrides([]);
       // Give Vite ~1.5 s to HMR the CSS file; then clear the redundant inline
       // overrides (by then the stylesheet value matches, so no visual change).
@@ -513,8 +522,34 @@ export function DesignPanel({ active }: { active: boolean }) {
   const saveToFile = useCallback(async (prop: string, value: string) => {
     await fetch('/api/tokens', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: prop, value }) }).catch(() => {});
     setSaved(prop);
+    setSavedCount(c => c + 1);
     setTimeout(() => setSaved(null), 2000);
   }, []);
+
+  // ── Submit PR ──────────────────────────────────────────────────────────────
+  const submitPR = useCallback(async () => {
+    if (!prTitle.trim() || prLoading) return;
+    setPrLoading(true);
+    setPrResult(null);
+    try {
+      const res = await fetch('/api/create-pr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: prTitle.trim(), body: prBody.trim() }),
+      });
+      const data = await res.json() as { ok?: boolean; url?: string; error?: string };
+      if (data.ok && data.url) {
+        setPrResult({ url: data.url });
+        setSavedCount(0); // reset badge after successful PR
+      } else {
+        setPrResult({ error: data.error ?? 'Unknown error' });
+      }
+    } catch (e) {
+      setPrResult({ error: String(e) });
+    } finally {
+      setPrLoading(false);
+    }
+  }, [prTitle, prBody, prLoading]);
 
   if (!active) return null;
 
@@ -586,6 +621,19 @@ export function DesignPanel({ active }: { active: boolean }) {
                     <span style={{ marginLeft: 4, background: '#f0883e', color: '#fff', borderRadius: 8, fontSize: 9, padding: '1px 5px', fontWeight: 700 }}>{pendingCount}</span>
                   )}
                 </button>
+                {savedCount > 0 && (
+                  <button
+                    onClick={() => { setPrOpen(o => !o); setPrResult(null); }}
+                    title="Submit saved changes as a GitHub Pull Request"
+                    style={{
+                      ...s.btn,
+                      background: prOpen ? '#6e40c9' : 'transparent',
+                      color:      prOpen ? '#fff'     : '#a371f7',
+                      borderColor: '#6e40c9',
+                    }}>
+                    ⤴ PR
+                  </button>
+                )}
               </div>
             </div>
 
@@ -616,6 +664,81 @@ export function DesignPanel({ active }: { active: boolean }) {
           </div>
         );
       })()}
+
+      {/* ── PR Drawer ───────────────────────────────────────────────────── */}
+      {prOpen && (
+        <div style={{ borderBottom: '1px solid #30363d', background: '#161b22', padding: '10px 12px', flexShrink: 0 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#a371f7', marginBottom: 8, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+            Create Pull Request
+          </div>
+
+          {prResult?.url ? (
+            /* ── Success ── */
+            <div>
+              <div style={{ color: '#3fb950', fontSize: 11, marginBottom: 6 }}>✓ PR created successfully!</div>
+              <a href={prResult.url} target="_blank" rel="noreferrer"
+                style={{ color: '#58a6ff', fontSize: 11, wordBreak: 'break-all', display: 'block', marginBottom: 8 }}>
+                {prResult.url}
+              </a>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  onClick={() => window.open(prResult.url, '_blank')}
+                  style={{ ...s.btn, flex: 1, background: '#238636', color: '#fff', borderColor: '#2ea043' }}>
+                  Open PR ↗
+                </button>
+                <button onClick={() => { setPrOpen(false); setPrResult(null); setPrTitle(''); setPrBody(''); }}
+                  style={s.btn}>
+                  Close
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* ── Form ── */
+            <>
+              {prResult?.error && (
+                <div style={{ background: '#3d1a1a', border: '1px solid #6e1a1a', borderRadius: 4, padding: '6px 8px', color: '#f85149', fontSize: 11, marginBottom: 8 }}>
+                  {prResult.error}
+                </div>
+              )}
+              <input
+                placeholder="PR title — e.g. Update primary brand color to indigo"
+                value={prTitle}
+                onChange={e => setPrTitle(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') submitPR(); }}
+                style={{ width: '100%', padding: '5px 8px', background: '#0d1117', border: '1px solid #30363d', borderRadius: 4, color: '#c9d1d9', fontSize: 11, boxSizing: 'border-box', fontFamily: 'inherit', outline: 'none' }}
+              />
+              <textarea
+                placeholder="Description (optional) — what changed and why"
+                value={prBody}
+                onChange={e => setPrBody(e.target.value)}
+                rows={2}
+                style={{ marginTop: 5, width: '100%', padding: '5px 8px', background: '#0d1117', border: '1px solid #30363d', borderRadius: 4, color: '#c9d1d9', fontSize: 11, resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit', outline: 'none' }}
+              />
+              <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                <button
+                  disabled={!prTitle.trim() || prLoading}
+                  onClick={submitPR}
+                  style={{
+                    flex: 1,
+                    background: prTitle.trim() && !prLoading ? '#6e40c9' : '#21262d',
+                    border: 'none', borderRadius: 4,
+                    color: prTitle.trim() && !prLoading ? '#fff' : '#6e7681',
+                    padding: '6px', cursor: prTitle.trim() && !prLoading ? 'pointer' : 'default',
+                    fontSize: 11, fontFamily: 'inherit',
+                  }}>
+                  {prLoading ? 'Creating PR…' : '⤴ Create PR'}
+                </button>
+                <button onClick={() => { setPrOpen(false); setPrResult(null); }} style={s.btn}>
+                  Cancel
+                </button>
+              </div>
+              <div style={{ marginTop: 6, fontSize: 10, color: '#6e7681' }}>
+                Requires <code style={{ background: '#21262d', padding: '1px 4px', borderRadius: 3 }}>GITHUB_TOKEN</code> in <code style={{ background: '#21262d', padding: '1px 4px', borderRadius: 3 }}>.env.local</code>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* ── Scrollable body ─────────────────────────────────────────────── */}
       <div style={{ flex: 1, overflowY: 'auto' }}>

@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "storybook build -o public/sb && next build",
     "start": "next start",
     "lint": "eslint",
     "storybook": "STORYBOOK_DISABLE_TELEMETRY=1 storybook dev -p 6006 --no-version-updates",

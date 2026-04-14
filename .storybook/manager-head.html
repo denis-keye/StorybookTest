@@ -103,6 +103,12 @@
   }
 
   /* ── Panel tabs — terminal style ───────────────────────────────────────── */
+  /* The tablist sits inside a flex parent — make the whole chain stretch */
+  [role="tablist"],
+  [role="tablist"] > *:not([role="tab"]) {
+    width: 100% !important;
+    flex: 1 !important;
+  }
   [role="tablist"] {
     background: var(--sb-bg2) !important;
     border-bottom: 1px solid var(--sb-border) !important;
@@ -111,7 +117,6 @@
     gap: 0 !important;
     height: 32px !important;
     display: flex !important;
-    width: 100% !important;
   }
 
   [role="tab"] {
@@ -122,7 +127,7 @@
     text-transform: uppercase !important;
     color: var(--sb-muted) !important;
     border: none !important;
-    border-bottom: 2px solid transparent !important;
+    border-bottom: none !important;
     border-radius: 0 !important;
     padding: 0 12px !important;
     height: 32px !important;
@@ -130,11 +135,13 @@
     align-items: center !important;
     justify-content: center !important;
     gap: 6px !important;
-    transition: color 0.1s !important;
+    transition: color 0.1s, background 0.1s !important;
     background: transparent !important;
     position: relative !important;
     flex: 1 !important;
     white-space: nowrap !important;
+    outline: none !important;
+    box-shadow: none !important;
   }
   [role="tab"]:hover {
     color: var(--sb-text) !important;
@@ -142,7 +149,7 @@
   }
   [role="tab"][aria-selected="true"] {
     color: var(--sb-accent) !important;
-    border-bottom-color: var(--sb-accent) !important;
+    border-bottom: none !important;
     background: rgba(2,156,253,0.06) !important;
   }
 

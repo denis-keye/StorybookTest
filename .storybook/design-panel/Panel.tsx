@@ -852,17 +852,19 @@ function InlineLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function BaseVariantSection({ storyId, styles, classList, fetchedVariants, selectedPath, channel, api, onAddClass, onRemoveClass, onApplyVariant }: {
-  storyId:         string;
-  styles:          ElementStyles | null;
-  classList:       string;
-  fetchedVariants: Record<string, string[]>;
-  selectedPath:    number[];
-  channel:         ReturnType<typeof addons.getChannel>;
-  api:             ReturnType<typeof useStorybookApi>;
-  onAddClass:      (cls: string) => void;
-  onRemoveClass:   (cls: string) => void;
-  onApplyVariant:  (varName: string, val: string) => void;
+function BaseVariantSection({ storyId, styles, classList, fetchedVariants, selectedPath, channel, api, onAddClass, onRemoveClass, onApplyVariant, onRenameBase, onRenameVariant }: {
+  storyId:          string;
+  styles:           ElementStyles | null;
+  classList:        string;
+  fetchedVariants:  Record<string, string[]>;
+  selectedPath:     number[];
+  channel:          ReturnType<typeof addons.getChannel>;
+  api:              ReturnType<typeof useStorybookApi>;
+  onAddClass:       (cls: string) => void;
+  onRemoveClass:    (cls: string) => void;
+  onApplyVariant:   (varName: string, val: string) => void;
+  onRenameBase?:    (newName: string) => void;
+  onRenameVariant?: (newName: string) => void;
 }) {
   const componentPrefix = storyId.split('--')[0]; // e.g. "ui-badge"
   const currentVariantSlug = storyId.split('--')[1] ?? ''; // e.g. "default"
@@ -926,14 +928,19 @@ function BaseVariantSection({ storyId, styles, classList, fetchedVariants, selec
     setActiveMode(a => ({ ...a, [varName]: val }));
   };
 
-  // ── Editable base name — persists in state, doesn't reset on blur ──
-  const [baseName, setBaseName] = useState(componentName);
-  // Keep in sync if story changes
-  useEffect(() => { setBaseName(componentName); }, [componentName]);
-
   // ── Derive current variant's display name from active story ──
   const activeStory = storyVariants.find(sv => sv.slug === currentVariantSlug);
   const variantDisplayName = activeStory?.name ?? currentVariantSlug.split('-').map(w => w[0]?.toUpperCase() + w.slice(1)).join(' ');
+
+  // ── Base name — persists edits in local state ──
+  const [baseName, setBaseName] = useState(componentName);
+  useEffect(() => { setBaseName(componentName); }, [componentName]);
+  const commitBase = (val: string) => { if (val.trim() && val.trim() !== componentName) onRenameBase?.(val.trim()); };
+
+  // ── Variant name — editable text, renames on commit ──
+  const [variantName, setVariantName] = useState(variantDisplayName);
+  // keep in sync when story changes
+  useEffect(() => { setVariantName(variantDisplayName); }, [variantDisplayName]);
 
   // ── Style stats row shared by Base and Variant ──
   const StatsRow = ({ st }: { st: ElementStyles | null }) => {
@@ -988,8 +995,10 @@ function BaseVariantSection({ storyId, styles, classList, fetchedVariants, selec
         style={nameBoxStyle}
         value={baseName}
         onChange={e => setBaseName(e.target.value)}
+        onBlur={e => commitBase(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') { commitBase(baseName); e.currentTarget.blur(); } }}
         spellCheck={false}
-        title="Component base name"
+        title="Component base name — press Enter to save"
       />
       <StatsRow st={styles} />
 
@@ -997,22 +1006,28 @@ function BaseVariantSection({ storyId, styles, classList, fetchedVariants, selec
 
       {/* ══ VARIANT ══ */}
       <InlineLabel>Variant</InlineLabel>
-      {storyVariants.length > 1 ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {/* Variant selector — acts as the big box, navigates on change */}
-          <select
-            value={currentVariantSlug}
-            onChange={e => api.selectStory?.(componentPrefix, e.target.value)}
-            style={{ ...nameBoxStyle, cursor: 'pointer', appearance: 'none', WebkitAppearance: 'none' } as React.CSSProperties}>
-            {storyVariants.map(sv => (
-              <option key={sv.id} value={sv.slug}>{sv.name}</option>
-            ))}
-          </select>
-          <StatsRow st={styles} />
-        </div>
-      ) : (
-        <div style={{ ...nameBoxStyle, cursor: 'default', opacity: 0.6 }}>
-          {variantDisplayName || '—'}
+      <input
+        style={nameBoxStyle}
+        value={variantName}
+        onChange={e => setVariantName(e.target.value)}
+        onBlur={e => { if (e.target.value.trim() && e.target.value.trim() !== variantDisplayName) onRenameVariant?.(e.target.value.trim()); }}
+        onKeyDown={e => { if (e.key === 'Enter') { if (variantName.trim() && variantName.trim() !== variantDisplayName) onRenameVariant?.(variantName.trim()); e.currentTarget.blur(); } }}
+        spellCheck={false}
+        title="Variant name — press Enter to save"
+      />
+      <StatsRow st={styles} />
+      {/* Switcher pills — navigate to other story variants */}
+      {storyVariants.length > 1 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 8 }}>
+          {storyVariants.map(sv => {
+            const isActive = sv.slug === currentVariantSlug;
+            return (
+              <button key={sv.id} onClick={() => api.selectStory?.(componentPrefix, sv.slug)}
+                style={pillStyle(isActive)}>
+                {sv.name}
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -1032,50 +1047,6 @@ function BaseVariantSection({ storyId, styles, classList, fetchedVariants, selec
           </div>
         );
       })}
-
-      {sectionDivider}
-
-      {/* ══ CLASS ══ */}
-      <InlineLabel>Class</InlineLabel>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
-        {semantics.map(cls => (
-          <span key={cls} style={{ ...pillStyle(true), padding: '2px 6px 2px 8px', fontSize: 11, fontFamily: SB.mono }}>
-            {cls}
-            <button onClick={() => onRemoveClass(cls)}
-              style={{ background: 'none', border: 'none', color: SB.accent, opacity: 0.7, cursor: 'pointer', padding: 0, fontSize: 10, lineHeight: 1 }}>×</button>
-          </span>
-        ))}
-        {addingCls ? (
-          <input autoFocus value={clsDraft} onChange={e => setClsDraft(e.target.value)}
-            onBlur={commitCls}
-            onKeyDown={e => { if (e.key === 'Enter') commitCls(); if (e.key === 'Escape') { setClsDraft(''); setAddingCls(false); } }}
-            placeholder="class-name" spellCheck={false}
-            style={{ background: SB.bgSecondary, border: `1px solid ${SB.accent}`, borderRadius: SB.radius, color: SB.text, fontSize: 11, padding: '2px 6px', outline: 'none', fontFamily: SB.mono, width: 110 }} />
-        ) : (
-          <button onClick={() => setAddingCls(true)}
-            style={{ background: 'none', border: `1px dashed ${SB.border}`, borderRadius: SB.radius, color: SB.textMuted, cursor: 'pointer', fontSize: 11, padding: '2px 8px', fontFamily: SB.font }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = SB.accent; e.currentTarget.style.color = SB.accent; }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = SB.border; e.currentTarget.style.color = SB.textMuted; }}>
-            + class
-          </button>
-        )}
-        {utils.length > 0 && (
-          <button onClick={() => setShowUtils(v => !v)}
-            style={{ background: 'none', border: `1px solid ${SB.border}`, borderRadius: SB.radius, color: SB.textMuted, cursor: 'pointer', fontSize: 9, padding: '2px 6px', fontFamily: SB.mono, opacity: showUtils ? 1 : 0.6 }}>
-            {showUtils ? '▾' : '▸'} {utils.length}
-          </button>
-        )}
-      </div>
-      {showUtils && utils.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 5 }}>
-          {utils.map(cls => (
-            <span key={cls} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, background: SB.bgSecondary, border: `1px solid ${SB.border}`, borderRadius: SB.radiusSm, padding: '1px 5px', fontSize: 9, color: SB.textMuted, fontFamily: SB.mono }}>
-              {cls}
-              <button onClick={() => onRemoveClass(cls)} style={{ background: 'none', border: 'none', color: SB.textMuted, cursor: 'pointer', padding: '0 0 0 2px', fontSize: 9, lineHeight: 1 }}>×</button>
-            </span>
-          ))}
-        </div>
-      )}
 
       {sectionDivider}
 
@@ -2924,6 +2895,20 @@ export function DesignPanel({ active }: { active: boolean }) {
               onAddClass={addClass}
               onRemoveClass={removeClass}
               onApplyVariant={applyVariant}
+              onRenameBase={name => {
+                channel.emit('DESIGN/RENAME_STORY', { storyId, part: 'base', name });
+                setPendingInline(prev => {
+                  const filtered = prev.filter(p => p.label !== 'base rename');
+                  return [...filtered, { kind: 'variant' as const, label: `base rename → ${name}` }];
+                });
+              }}
+              onRenameVariant={name => {
+                channel.emit('DESIGN/RENAME_STORY', { storyId, part: 'variant', name });
+                setPendingInline(prev => {
+                  const filtered = prev.filter(p => p.label !== 'variant rename');
+                  return [...filtered, { kind: 'variant' as const, label: `variant rename → ${name}` }];
+                });
+              }}
             />
           </Section>
         )}

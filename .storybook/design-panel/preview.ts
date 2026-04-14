@@ -536,7 +536,7 @@ channel.on('DESIGN/WRAP_IN_DIV', ({ path }: { path: number[] }) => {
   const el = path.length === 0 ? getStoryRoot() : getElementByPath(path);
   if (!(el instanceof HTMLElement) || !el.parentElement) return;
   const wrapper = document.createElement('div');
-  wrapper.style.display = 'contents'; // non-visual by default; user can change
+  wrapper.style.display = 'block'; // block by default so padding/fill are visible
   el.parentElement.insertBefore(wrapper, el);
   wrapper.appendChild(el);
   channel.emit('DESIGN/BUILD_TREE');

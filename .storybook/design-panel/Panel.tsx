@@ -918,28 +918,134 @@ function BaseVariantSection({ storyId, styles, classList, fetchedVariants, selec
     setActiveMode(a => ({ ...a, [varName]: val }));
   };
 
-  const divider = <div style={{ height: 1, background: SB.border, margin: '8px 0' }} />;
-  const pad: React.CSSProperties = { padding: '8px 12px 10px' };
+  // ── Editable base name state ──
+  const [baseDraft, setBaseDraft]       = useState('');
+  const [editingBase, setEditingBase]   = useState(false);
+
+  // ── Derive current variant's display name from active story ──
+  const activeStory = storyVariants.find(sv => sv.slug === currentVariantSlug);
+  const variantDisplayName = activeStory?.name ?? currentVariantSlug.split('-').map(w => w[0]?.toUpperCase() + w.slice(1)).join(' ');
+
+  // ── Style stats row shared by Base and Variant ──
+  const StatsRow = ({ st }: { st: ElementStyles | null }) => {
+    if (!st) return null;
+    const hasBg    = st.backgroundColor && st.backgroundColor !== 'rgba(0, 0, 0, 0)' && st.backgroundColor !== 'transparent';
+    const hasColor = !!st.color;
+    const radius   = st.borderRadius && st.borderRadius !== '0px' ? st.borderRadius : null;
+    const fontSize = st.fontSize ?? null;
+    const fontW    = st.fontWeight && st.fontWeight !== '400' ? st.fontWeight : null;
+    const textStyle = (st as ElementStyles & { textStyle?: string }).textStyle ?? null;
+    if (!hasBg && !hasColor && !radius && !fontSize && !fontW && !textStyle) return null;
+
+    const swatch = (color: string) => (
+      <span style={{ display: 'inline-block', width: 14, height: 14, borderRadius: 3,
+        background: color, border: `1px solid rgba(255,255,255,0.15)`,
+        verticalAlign: 'middle', flexShrink: 0 }} />
+    );
+    const stat = (label: string, val: React.ReactNode) => (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: SB.textMuted }}>
+        {label} {val}
+      </span>
+    );
+
+    return (
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', marginTop: 8 }}>
+        {hasBg    && stat('BG',        swatch(st.backgroundColor))}
+        {hasColor && stat('TextColor', swatch(st.color))}
+        {radius   && stat('Radius',    <strong style={{ color: SB.text }}>{radius}</strong>)}
+        {fontSize && stat('TextSize',  <strong style={{ color: SB.text }}>{fontSize}</strong>)}
+        {fontW    && stat('Weight',    <strong style={{ color: SB.text }}>{fontW}</strong>)}
+        {textStyle && stat('TextStyle', <strong style={{ color: SB.text }}>{textStyle}</strong>)}
+      </div>
+    );
+  };
+
+  const nameBoxStyle: React.CSSProperties = {
+    width: '100%', boxSizing: 'border-box',
+    background: '#ffffff', color: '#111',
+    border: 'none', borderRadius: SB.radius,
+    padding: '10px 14px', fontSize: 16, fontWeight: 700,
+    fontFamily: SB.font, outline: 'none', cursor: 'text',
+  };
+
+  const sectionDivider = <div style={{ height: 1, background: SB.border, margin: '16px 0 12px' }} />;
 
   return (
-    <div style={pad}>
+    <div style={{ padding: '12px 14px 14px' }}>
 
-      {/* ── BASE ── */}
+      {/* ══ BASE ══ */}
       <SubLabel>Base</SubLabel>
-      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5,
-        background: `${SB.accent}18`, border: `1px solid ${SB.accent}44`,
-        borderRadius: SB.radius, padding: '3px 9px',
-        fontSize: 12, color: SB.accent, fontFamily: SB.mono, fontWeight: 600 }}>
-        {componentName || '—'}
-      </div>
-      <StylePreviewRow styles={styles} />
+      {editingBase ? (
+        <input
+          autoFocus
+          style={nameBoxStyle}
+          value={baseDraft}
+          onChange={e => setBaseDraft(e.target.value)}
+          onBlur={() => setEditingBase(false)}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') setEditingBase(false); }}
+          spellCheck={false}
+        />
+      ) : (
+        <div style={{ ...nameBoxStyle, cursor: 'pointer' }} onClick={() => { setBaseDraft(componentName); setEditingBase(true); }}>
+          {componentName || '—'}
+        </div>
+      )}
+      <StatsRow st={styles} />
 
-      {/* ── CLASSES ── */}
-      {divider}
+      {sectionDivider}
+
+      {/* ══ VARIANT ══ */}
+      <SubLabel>Variant</SubLabel>
+      {storyVariants.length > 1 ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {/* Active variant — large box */}
+          <div style={{ ...nameBoxStyle, cursor: 'default' }}>
+            {variantDisplayName}
+          </div>
+          <StatsRow st={styles} />
+          {/* Switcher pills */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 2 }}>
+            {storyVariants.map(sv => {
+              const isActive = sv.slug === currentVariantSlug;
+              return (
+                <button key={sv.id} onClick={() => api.selectStory?.(componentPrefix, sv.slug)}
+                  style={pillStyle(isActive)}>
+                  {sv.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <div style={{ ...nameBoxStyle, cursor: 'default', opacity: 0.5 }}>
+          {variantDisplayName || '—'}
+        </div>
+      )}
+
+      {/* ── CVA mode groups (below variant) ── */}
+      {modeKeys.map(varName => {
+        const vals = [...new Set(fetchedVariants[varName].filter(v => !INTERACTION_VALUES.has(v.toLowerCase())))];
+        return (
+          <div key={varName} style={{ marginTop: 10 }}>
+            <SubLabel>{varName}</SubLabel>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {vals.map(val => (
+                <button key={val} onClick={() => applyMode(varName, val)} style={pillStyle(activeMode[varName] === val)}>
+                  {val}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+
+      {sectionDivider}
+
+      {/* ══ CLASS ══ */}
       <SubLabel>Class</SubLabel>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
         {semantics.map(cls => (
-          <span key={cls} style={{ ...pillStyle(true), padding: '2px 6px 2px 7px', fontSize: 11, fontFamily: SB.mono }}>
+          <span key={cls} style={{ ...pillStyle(true), padding: '2px 6px 2px 8px', fontSize: 11, fontFamily: SB.mono }}>
             {cls}
             <button onClick={() => onRemoveClass(cls)}
               style={{ background: 'none', border: 'none', color: SB.accent, opacity: 0.7, cursor: 'pointer', padding: 0, fontSize: 10, lineHeight: 1 }}>×</button>
@@ -950,12 +1056,12 @@ function BaseVariantSection({ storyId, styles, classList, fetchedVariants, selec
             onBlur={commitCls}
             onKeyDown={e => { if (e.key === 'Enter') commitCls(); if (e.key === 'Escape') { setClsDraft(''); setAddingCls(false); } }}
             placeholder="class-name" spellCheck={false}
-            style={{ background: SB.bgSecondary, border: `1px solid ${SB.accent}`, borderRadius: SB.radius, color: SB.text, fontSize: 11, padding: '2px 6px', outline: 'none', fontFamily: SB.mono, width: 100 }} />
+            style={{ background: SB.bgSecondary, border: `1px solid ${SB.accent}`, borderRadius: SB.radius, color: SB.text, fontSize: 11, padding: '2px 6px', outline: 'none', fontFamily: SB.mono, width: 110 }} />
         ) : (
           <button onClick={() => setAddingCls(true)}
-            style={{ background: 'none', border: `1px dashed ${SB.border}`, borderRadius: SB.radius, color: SB.textMuted, cursor: 'pointer', fontSize: 11, padding: '2px 7px', fontFamily: SB.font, lineHeight: 1.4 }}
-            onMouseEnter={e => { (e.currentTarget).style.borderColor = SB.accent; (e.currentTarget).style.color = SB.accent; }}
-            onMouseLeave={e => { (e.currentTarget).style.borderColor = SB.border; (e.currentTarget).style.color = SB.textMuted; }}>
+            style={{ background: 'none', border: `1px dashed ${SB.border}`, borderRadius: SB.radius, color: SB.textMuted, cursor: 'pointer', fontSize: 11, padding: '2px 8px', fontFamily: SB.font }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = SB.accent; e.currentTarget.style.color = SB.accent; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = SB.border; e.currentTarget.style.color = SB.textMuted; }}>
             + class
           </button>
         )}
@@ -977,42 +1083,9 @@ function BaseVariantSection({ storyId, styles, classList, fetchedVariants, selec
         </div>
       )}
 
-      {/* ── VARIANT (named story exports) ── */}
-      {storyVariants.length > 1 && (<>
-        {divider}
-        <SubLabel>Variant</SubLabel>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-          {storyVariants.map(sv => {
-            const isActive = sv.slug === currentVariantSlug;
-            return (
-              <button key={sv.id} onClick={() => api.selectStory?.(componentPrefix, sv.slug)}
-                style={pillStyle(isActive)}>
-                {sv.name}
-              </button>
-            );
-          })}
-        </div>
-      </>)}
+      {sectionDivider}
 
-      {/* ── CVA mode groups ── */}
-      {modeKeys.map(varName => {
-        const vals = [...new Set(fetchedVariants[varName].filter(v => !INTERACTION_VALUES.has(v.toLowerCase())))];
-        return (
-          <div key={varName} style={{ marginTop: 8 }}>
-            <SubLabel>{varName}</SubLabel>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-              {vals.map(val => (
-                <button key={val} onClick={() => applyMode(varName, val)} style={pillStyle(activeMode[varName] === val)}>
-                  {val}
-                </button>
-              ))}
-            </div>
-          </div>
-        );
-      })}
-
-      {/* ── STATE ── */}
-      {divider}
+      {/* ══ STATE ══ */}
       <SubLabel>State</SubLabel>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
         {INTERACTION_STATES.map(({ label, pseudo }) => (

@@ -317,10 +317,7 @@ channel.on('DESIGN/RESET_PROP', (prop: string) => {
   _flushOverrides();
 });
 
-channel.on('DESIGN/RESET_ALL', () => {
-  Object.keys(_overrideMap).forEach(k => delete _overrideMap[k]);
-  _flushOverrides();
-});
+channel.on('DESIGN/RESET_ALL', () => _doResetAll());
 
 // Resolve a list of CSS custom property names using the browser's own
 // colour pipeline.  getComputedStyle(root).getPropertyValue('--foo') returns
@@ -355,11 +352,65 @@ channel.on('DESIGN/SET_STORY_ARG', ({ prop, value }: { prop: string; value: stri
   channel.emit('updateArgs', { updatedArgs: { [prop]: value } });
 });
 
+// ── Per-element original-state snapshots for reset/undo ────────────────────
+// Key: serialised path array e.g. "0,1,2"
+const _origStyle   = new Map<string, string>();   // element.style.cssText before first mutation
+const _origClasses = new Map<string, string>();   // element.className before first mutation
+// Undo stack: array of { path, kind, prop?, value?, cls? } in apply order
+const _undoStack: Array<{ pathKey: string; kind: 'style' | 'class'; prop?: string; prev?: string; cls?: string; added?: boolean }> = [];
+
+function pathKey(path: number[]) { return path.join(','); }
+
+function snapshotEl(el: HTMLElement, key: string) {
+  if (!_origStyle.has(key))   _origStyle.set(key, el.style.cssText);
+  if (!_origClasses.has(key)) _origClasses.set(key, el.className);
+}
+
+// Apply pseudo-state on an element: dispatches real browser events + data attrs
+function applyPseudoState(el: HTMLElement, pseudo: string, on: boolean) {
+  if (pseudo === 'hover') {
+    el.dispatchEvent(new MouseEvent(on ? 'mouseover' : 'mouseout', { bubbles: true }));
+    if (on) el.setAttribute('data-hover', 'true');
+    else    el.removeAttribute('data-hover');
+  } else if (pseudo === 'focus') {
+    if (on) el.focus();
+    else    el.blur();
+    if (on) el.setAttribute('data-focus', 'true');
+    else    el.removeAttribute('data-focus');
+  } else if (pseudo === 'active') {
+    el.dispatchEvent(new MouseEvent(on ? 'mousedown' : 'mouseup', { bubbles: true }));
+    if (on) el.setAttribute('data-active', 'true');
+    else    el.removeAttribute('data-active');
+  } else if (pseudo === 'disabled') {
+    if (on) {
+      (el as HTMLButtonElement | HTMLInputElement).disabled = true;
+      el.setAttribute('data-disabled', 'true');
+    } else {
+      (el as HTMLButtonElement | HTMLInputElement).disabled = false;
+      el.removeAttribute('data-disabled');
+    }
+  }
+}
+
 // Add a class to a specific element by path
 channel.on('DESIGN/ADD_CLASS', ({ path, cls }: { path: number[]; cls: string }) => {
   const el = path.length === 0 ? getStoryRoot() : getElementByPath(path);
   if (el instanceof HTMLElement) {
-    cls.trim().split(/\s+/).forEach(c => c && el.classList.add(c));
+    const key = pathKey(path);
+    snapshotEl(el, key);
+    cls.trim().split(/\s+/).forEach(c => {
+      if (!c) return;
+      // pseudo-* classes trigger real browser pseudo-state simulation
+      const pseudoMatch = c.match(/^pseudo-(\w+)$/);
+      if (pseudoMatch) {
+        applyPseudoState(el, pseudoMatch[1], true);
+        return; // don't add to classList
+      }
+      if (!el.classList.contains(c)) {
+        el.classList.add(c);
+        _undoStack.push({ pathKey: key, kind: 'class', cls: c, added: true });
+      }
+    });
     channel.emit('DESIGN/STYLES', readStyles(el));
   }
 });
@@ -368,7 +419,20 @@ channel.on('DESIGN/ADD_CLASS', ({ path, cls }: { path: number[]; cls: string }) 
 channel.on('DESIGN/REMOVE_CLASS', ({ path, cls }: { path: number[]; cls: string }) => {
   const el = path.length === 0 ? getStoryRoot() : getElementByPath(path);
   if (el instanceof HTMLElement) {
-    cls.trim().split(/\s+/).forEach(c => c && el.classList.remove(c));
+    const key = pathKey(path);
+    snapshotEl(el, key);
+    cls.trim().split(/\s+/).forEach(c => {
+      if (!c) return;
+      const pseudoMatch = c.match(/^pseudo-(\w+)$/);
+      if (pseudoMatch) {
+        applyPseudoState(el, pseudoMatch[1], false);
+        return;
+      }
+      if (el.classList.contains(c)) {
+        el.classList.remove(c);
+        _undoStack.push({ pathKey: key, kind: 'class', cls: c, added: false });
+      }
+    });
     channel.emit('DESIGN/STYLES', readStyles(el));
   }
 });
@@ -377,13 +441,88 @@ channel.on('DESIGN/REMOVE_CLASS', ({ path, cls }: { path: number[]; cls: string 
 channel.on('DESIGN/SET_INLINE_STYLE', ({ path, prop, value }: { path: number[]; prop: string; value: string }) => {
   const el = path.length === 0 ? getStoryRoot() : getElementByPath(path);
   if (el instanceof HTMLElement) {
+    const key = pathKey(path);
+    snapshotEl(el, key);
+    const prev = el.style.getPropertyValue(prop);
     if (value) {
       el.style.setProperty(prop, value);
     } else {
       el.style.removeProperty(prop);
     }
+    _undoStack.push({ pathKey: key, kind: 'style', prop, prev });
     channel.emit('DESIGN/STYLES', readStyles(el));
   }
+});
+
+// Undo the last inline mutation
+channel.on('DESIGN/UNDO_INLINE', () => {
+  const op = _undoStack.pop();
+  if (!op) return;
+  // Reconstruct path from key
+  const path = op.pathKey === '' ? [] : op.pathKey.split(',').map(Number);
+  const el = path.length === 0 ? getStoryRoot() : getElementByPath(path);
+  if (!(el instanceof HTMLElement)) return;
+  if (op.kind === 'style' && op.prop !== undefined) {
+    if (op.prev) el.style.setProperty(op.prop, op.prev);
+    else el.style.removeProperty(op.prop);
+  } else if (op.kind === 'class' && op.cls) {
+    if (op.added) el.classList.remove(op.cls);
+    else el.classList.add(op.cls);
+  }
+  channel.emit('DESIGN/STYLES', readStyles(el));
+});
+
+// Full reset: CSS variable overrides + all inline style / className mutations
+function _doResetAll() {
+  Object.keys(_overrideMap).forEach(k => delete _overrideMap[k]);
+  _flushOverrides();
+  // Restore per-element mutations
+  _origStyle.forEach((cssText, key) => {
+    const path = key === '' ? [] : key.split(',').map(Number);
+    const el = path.length === 0 ? getStoryRoot() : getElementByPath(path);
+    if (el instanceof HTMLElement) el.style.cssText = cssText;
+  });
+  _origClasses.forEach((className, key) => {
+    const path = key === '' ? [] : key.split(',').map(Number);
+    const el = path.length === 0 ? getStoryRoot() : getElementByPath(path);
+    if (el instanceof HTMLElement) el.className = className;
+  });
+  _origStyle.clear();
+  _origClasses.clear();
+  _undoStack.length = 0;
+  // Re-emit styles for whatever is currently inspected
+  const root = getStoryRoot();
+  if (root) channel.emit('DESIGN/STYLES', readStyles(root));
+}
+
+// Set canvas (story iframe body) background color
+channel.on('DESIGN/SET_CANVAS_BG', ({ color }: { color: string }) => {
+  document.body.style.background = color;
+  document.documentElement.style.background = color;
+});
+
+// Wrap the target element in a new empty div, rebuild tree
+channel.on('DESIGN/WRAP_IN_DIV', ({ path }: { path: number[] }) => {
+  const el = path.length === 0 ? getStoryRoot() : getElementByPath(path);
+  if (!(el instanceof HTMLElement) || !el.parentElement) return;
+  const wrapper = document.createElement('div');
+  wrapper.style.display = 'contents'; // non-visual by default; user can change
+  el.parentElement.insertBefore(wrapper, el);
+  wrapper.appendChild(el);
+  channel.emit('DESIGN/BUILD_TREE');
+  channel.emit('DESIGN/TREE', buildTree(getStoryRoot()!));
+});
+
+// Insert an empty inline sibling span after the target element, rebuild tree
+channel.on('DESIGN/INSERT_SIBLING', ({ path }: { path: number[] }) => {
+  const el = path.length === 0 ? getStoryRoot() : getElementByPath(path);
+  if (!(el instanceof HTMLElement) || !el.parentElement) return;
+  const sibling = document.createElement('span');
+  sibling.textContent = 'New element';
+  sibling.style.display = 'inline';
+  el.parentElement.insertBefore(sibling, el.nextSibling);
+  channel.emit('DESIGN/BUILD_TREE');
+  channel.emit('DESIGN/TREE', buildTree(getStoryRoot()!));
 });
 
 export const decorators: Decorator[] = [];

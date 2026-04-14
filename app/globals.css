@@ -49,17 +49,67 @@
 }
 
 :root {
+  /* ── Brand palette ──────────────────────────────────── */
+  --blue-50:   oklch(0.97 0.02 250);
+  --blue-100:  oklch(0.93 0.05 250);
+  --blue-200:  oklch(0.86 0.10 250);
+  --blue-400:  oklch(0.65 0.18 250);
+  --blue-500:  oklch(0.55 0.22 250);
+  --blue-600:  oklch(0.46 0.22 250);
+  --blue-700:  oklch(0.38 0.18 250);
+
+  --green-400: oklch(0.72 0.19 145);
+  --green-500: oklch(0.62 0.20 145);
+  --green-600: oklch(0.52 0.18 145);
+
+  --amber-400: oklch(0.82 0.17 80);
+  --amber-500: oklch(0.74 0.19 70);
+  --amber-600: oklch(0.64 0.18 60);
+
+  --violet-400: oklch(0.65 0.22 290);
+  --violet-500: oklch(0.55 0.25 290);
+  --violet-600: oklch(0.46 0.24 290);
+
+  --pink-400:  oklch(0.72 0.22 340);
+  --pink-500:  oklch(0.62 0.24 340);
+  --pink-600:  oklch(0.53 0.22 340);
+
+  --teal-400:  oklch(0.70 0.14 185);
+  --teal-500:  oklch(0.60 0.15 185);
+  --teal-600:  oklch(0.50 0.14 185);
+
+  --red-400:   oklch(0.68 0.22 25);
+  --red-500:   oklch(0.58 0.24 25);
+
+  --gray-50:   oklch(0.98 0 0);
+  --gray-100:  oklch(0.96 0 0);
+  --gray-200:  oklch(0.91 0 0);
+  --gray-300:  oklch(0.84 0 0);
+  --gray-400:  oklch(0.72 0 0);
+  --gray-500:  oklch(0.58 0 0);
+  --gray-600:  oklch(0.44 0 0);
+  --gray-700:  oklch(0.33 0 0);
+  --gray-800:  oklch(0.22 0 0);
+  --gray-900:  oklch(0.14 0 0);
+
+  /* ── Storybook UI colors ─────────────────────────────── */
+  --sb-bg:          oklch(0.21 0 0);
+  --sb-bg-secondary:oklch(0.25 0 0);
+  --sb-bg-hover:    oklch(0.29 0 0);
+  --sb-text:        oklch(1.00 0 0);
+  --sb-text-muted:  oklch(0.70 0 0);
+  --sb-accent:      oklch(0.65 0.18 230);
+  --sb-border:      oklch(0.38 0 0);
+
+  /* ── Semantic aliases ────────────────────────────────── */
   --border-primary: var(--sidebar-accent-foreground);
-  --bg-primary: var(--destructive);
-  --bg-primary: var(--destructive);
-  --bg-primary: var(--destructive);
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  --primary: var(--primary);
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
@@ -94,7 +144,7 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
+  --primary: var(--primary);
   --primary-foreground: oklch(0.205 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);

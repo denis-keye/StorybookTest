@@ -1,0 +1,216 @@
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+
+<style>
+  /* ── Reset & base ──────────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; }
+
+  :root {
+    --sb-bg0:      #0f0f10;   /* deepest – preview bg          */
+    --sb-bg1:      #161618;   /* app bg / sidebar              */
+    --sb-bg2:      #1c1c1f;   /* toolbar / panel bg            */
+    --sb-bg3:      #26262a;   /* elevated surfaces / inputs    */
+    --sb-bg4:      #2e2e34;   /* hover states                  */
+    --sb-border:   rgba(255,255,255,0.07);
+    --sb-text:     #e8e8ed;
+    --sb-muted:    rgba(232,232,237,0.40);
+    --sb-accent:   #029cfd;
+    --sb-accent-glow: rgba(2,156,253,0.18);
+    --sb-radius:   8px;
+    --sb-radius-sm:4px;
+    --sb-font:     "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --sb-mono:     "SF Mono", "Fira Code", monospace;
+  }
+
+  body { font-family: var(--sb-font) !important; }
+
+  /* ── Sidebar ───────────────────────────────────────────────────────────── */
+  /* Root container */
+  #storybook-explorer-menu,
+  [class*="sidebar"] {
+    background: var(--sb-bg1) !important;
+    border-right: 1px solid var(--sb-border) !important;
+  }
+
+  /* Story tree items */
+  [data-nodetype="story"] a,
+  [data-nodetype="component"] button,
+  [data-nodetype="root"] button {
+    border-radius: var(--sb-radius-sm) !important;
+    transition: background 0.1s, color 0.1s !important;
+  }
+  [data-nodetype="story"] a:hover {
+    background: var(--sb-bg4) !important;
+  }
+  [data-selected="true"] > a,
+  [data-selected="true"] > button {
+    background: var(--sb-accent-glow) !important;
+    color: var(--sb-accent) !important;
+    font-weight: 600 !important;
+  }
+
+  /* Sidebar search */
+  [class*="search"] input {
+    background: var(--sb-bg3) !important;
+    border: 1px solid var(--sb-border) !important;
+    border-radius: var(--sb-radius) !important;
+    color: var(--sb-text) !important;
+    font-family: var(--sb-font) !important;
+    font-size: 12px !important;
+    transition: border-color 0.15s !important;
+  }
+  [class*="search"] input:focus {
+    border-color: var(--sb-accent) !important;
+    outline: none !important;
+    box-shadow: 0 0 0 3px var(--sb-accent-glow) !important;
+  }
+
+  /* Sidebar header brand */
+  [class*="brand"],
+  [class*="branding"] {
+    padding: 16px 14px !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.02em !important;
+    font-size: 15px !important;
+  }
+
+  /* ── Toolbar ───────────────────────────────────────────────────────────── */
+  [class*="Toolbar"],
+  [role="toolbar"] {
+    background: var(--sb-bg2) !important;
+    border-bottom: 1px solid var(--sb-border) !important;
+    height: 44px !important;
+    gap: 2px !important;
+    padding: 0 12px !important;
+  }
+
+  /* Toolbar buttons */
+  [role="toolbar"] button,
+  [class*="toolbarItem"] button {
+    border-radius: var(--sb-radius-sm) !important;
+    color: var(--sb-muted) !important;
+    transition: background 0.1s, color 0.1s !important;
+  }
+  [role="toolbar"] button:hover {
+    background: var(--sb-bg4) !important;
+    color: var(--sb-text) !important;
+  }
+  [role="toolbar"] button[aria-pressed="true"],
+  [role="toolbar"] button[data-active="true"] {
+    background: var(--sb-accent-glow) !important;
+    color: var(--sb-accent) !important;
+  }
+
+  /* ── Panel tabs — terminal style ───────────────────────────────────────── */
+  [role="tablist"] {
+    background: var(--sb-bg2) !important;
+    border-bottom: 1px solid var(--sb-border) !important;
+    border-top: none !important;
+    padding: 0 8px !important;
+    gap: 0 !important;
+    height: 32px !important;
+  }
+
+  [role="tab"] {
+    font-family: var(--sb-mono) !important;
+    font-size: 10px !important;
+    font-weight: 400 !important;
+    letter-spacing: 0.06em !important;
+    text-transform: uppercase !important;
+    color: var(--sb-muted) !important;
+    border: none !important;
+    border-bottom: 2px solid transparent !important;
+    border-radius: 0 !important;
+    padding: 0 12px !important;
+    height: 32px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    transition: color 0.1s !important;
+    background: transparent !important;
+    position: relative !important;
+  }
+  [role="tab"]:hover {
+    color: var(--sb-text) !important;
+    background: rgba(255,255,255,0.04) !important;
+  }
+  [role="tab"][aria-selected="true"] {
+    color: var(--sb-accent) !important;
+    border-bottom-color: var(--sb-accent) !important;
+    background: rgba(2,156,253,0.06) !important;
+  }
+
+  /* Kill ALL pill/badge styling inside tabs — target every span descendant */
+  [role="tab"] span,
+  [role="tab"] span span {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    min-width: unset !important;
+    height: auto !important;
+    line-height: inherit !important;
+  }
+  [role="tab"] span {
+    font-family: var(--sb-mono) !important;
+    font-size: 10px !important;
+    letter-spacing: 0.06em !important;
+    text-transform: uppercase !important;
+    color: var(--sb-muted) !important;
+  }
+  [role="tab"][aria-selected="true"] span {
+    color: var(--sb-accent) !important;
+  }
+
+  /* ── Panel / addon surface ────────────────────────────────────────────── */
+  /* Scoped tightly — avoid hitting preview/canvas wrappers */
+  #storybook-panel-root,
+  [data-role="panel"] {
+    background: var(--sb-bg1) !important;
+  }
+
+  /* ── Scrollbars ───────────────────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.12);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255,255,255,0.22);
+  }
+
+  /* ── Controls addon table ─────────────────────────────────────────────── */
+  table[class*="controls"] td,
+  table[class*="controls"] th {
+    font-family: var(--sb-font) !important;
+    font-size: 12px !important;
+    border-color: var(--sb-border) !important;
+  }
+  table[class*="controls"] tr:hover td {
+    background: var(--sb-bg3) !important;
+  }
+
+  /* ── Canvas frame ─────────────────────────────────────────────────────── */
+  #storybook-preview-wrapper {
+    background: var(--sb-bg0) !important;
+  }
+
+  /* ── Focus rings ─────────────────────────────────────────────────────── */
+  *:focus-visible {
+    outline: 2px solid var(--sb-accent) !important;
+    outline-offset: 2px !important;
+  }
+</style>
+
+<script>
+  /* Remove any persisted SB layout so panelPosition:'right' from manager.ts always wins */
+  try {
+    Object.keys(localStorage)
+      .filter(k => k.includes('storybook') && (k.includes('layout') || k.includes('ui')))
+      .forEach(k => localStorage.removeItem(k));
+    localStorage.removeItem('@storybook/manager/store');
+  } catch(e) {}
+</script>

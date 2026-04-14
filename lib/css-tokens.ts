@@ -116,8 +116,11 @@ export function parseTokens(css: string): TokenEntry[] {
   const resolved = new Map<string, string>();
   for (const [name, value] of raw) {
     if (!value.includes('var(')) {
-      const hex = value.startsWith('oklch(') ? (oklchToHex(value) ?? value) : value;
-      resolved.set(name, hex);
+      // Skip oklch conversion — server-side math is inaccurate for display.
+      // Browser resolution via DESIGN/RESOLVE_TOKENS will patch with correct values.
+      if (!value.startsWith('oklch(')) {
+        resolved.set(name, value);
+      }
     }
   }
   let changed = true;

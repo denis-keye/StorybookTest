@@ -907,19 +907,34 @@ function BaseVariantSection({ storyId, styles, classList, fetchedVariants, selec
     setClsDraft(''); setAddingCls(false);
   };
 
-  // State toggles
-  const [activeStates, setActiveStates] = useState<Set<string>>(new Set());
-  const toggleState = (pseudo: string) => {
-    const next = new Set(activeStates);
-    if (next.has(pseudo)) {
-      next.delete(pseudo);
+  // State toggles — single-select radio; changes stored per-state
+  const [activeState, setActiveState] = useState<string | null>(null);
+  // stateChanges: pseudo → { prop: value } map of overrides made while that state was active
+  const [stateChanges, setStateChanges] = useState<Record<string, Record<string, string>>>({});
+
+  const selectState = (pseudo: string) => {
+    if (activeState === pseudo) {
+      // deselect — remove pseudo class
       channel.emit('DESIGN/REMOVE_CLASS', { path: selectedPath, cls: `pseudo-${pseudo}` });
+      setActiveState(null);
     } else {
-      next.add(pseudo);
+      // remove previous
+      if (activeState) channel.emit('DESIGN/REMOVE_CLASS', { path: selectedPath, cls: `pseudo-${activeState}` });
       channel.emit('DESIGN/ADD_CLASS', { path: selectedPath, cls: `pseudo-${pseudo}` });
+      setActiveState(pseudo);
     }
-    setActiveStates(next);
   };
+
+  // Called by parent when an inline override is applied — record it under current active state
+  // (wired via onStateChange prop below — parent passes current overrides down)
+  const recordStateChange = (prop: string, value: string) => {
+    if (!activeState) return;
+    setStateChanges(prev => ({
+      ...prev,
+      [activeState]: { ...(prev[activeState] ?? {}), [prop]: value },
+    }));
+  };
+  void recordStateChange; // used externally via ref if needed
 
   // CVA mode active tracking
   const [activeMode, setActiveMode] = useState<Record<string, string>>({});
@@ -1053,13 +1068,166 @@ function BaseVariantSection({ storyId, styles, classList, fetchedVariants, selec
       {/* ══ STATE ══ */}
       <InlineLabel>State</InlineLabel>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-        {INTERACTION_STATES.map(({ label, pseudo }) => (
-          <button key={pseudo} onClick={() => toggleState(pseudo)} style={pillStyle(activeStates.has(pseudo))}>
-            {label}
+        {INTERACTION_STATES.map(({ label, pseudo }) => {
+          const isActive = activeState === pseudo;
+          const hasPendingChanges = !isActive && Object.keys(stateChanges[pseudo] ?? {}).length > 0;
+          return (
+            <button key={pseudo} onClick={() => selectState(pseudo)}
+              style={{ ...pillStyle(isActive), position: 'relative' }}>
+              {hasPendingChanges && (
+                <span style={{
+                  position: 'absolute', top: 2, right: 2,
+                  width: 5, height: 5, borderRadius: '50%',
+                  background: SB.accent, flexShrink: 0,
+                }} />
+              )}
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      {/* Per-state change summary */}
+      {activeState && Object.keys(stateChanges[activeState] ?? {}).length > 0 && (
+        <div style={{ marginTop: 6, fontSize: 9, color: SB.textMuted, fontFamily: SB.mono }}>
+          {Object.keys(stateChanges[activeState]).length} override{Object.keys(stateChanges[activeState]).length !== 1 ? 's' : ''} on :{activeState}
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+// ─── BaseInspector ──────────────────────────────────────────────────────────
+// Shows the base component's token/style composition and how the active
+// variant overrides it. Lets the user apply changes at base level (all
+// variants inherit) or variant level (this instance only).
+
+type InspectorScope = 'base' | 'variant';
+
+function BaseInspector({ storyId, styles, tokens, onApplyInline, onApplyToken }: {
+  storyId:       string;
+  styles:        ElementStyles | null;
+  tokens:        TokenEntry[];
+  onApplyInline: (prop: string, value: string) => void;
+  onApplyToken:  (prop: string, value: string) => void;
+}) {
+  const [scope, setScope] = useState<InspectorScope>('base');
+  const [baseOverrides, setBaseOverrides] = useState<Record<string, string>>({});
+  const [variantOverrides, setVariantOverrides] = useState<Record<string, string>>({});
+
+  if (!styles) return <div style={{ padding: '10px 14px', fontSize: 11, color: SB.textMuted }}>Select a layer to inspect.</div>;
+
+  const apply = (prop: string, value: string) => {
+    if (scope === 'base') {
+      setBaseOverrides(p => ({ ...p, [prop]: value }));
+    } else {
+      setVariantOverrides(p => ({ ...p, [prop]: value }));
+    }
+    onApplyInline(prop, value);
+  };
+
+  const baseChanges   = Object.keys(baseOverrides).length;
+  const variantChanges = Object.keys(variantOverrides).length;
+
+  // Build rows from current styles
+  const rows: { label: string; prop: string; value: string; isColor: boolean; token?: string }[] = [];
+  if (styles.backgroundColor && styles.backgroundColor !== 'rgba(0, 0, 0, 0)' && styles.backgroundColor !== 'transparent')
+    rows.push({ label: 'Background', prop: 'backgroundColor', value: styles.bgToken || styles.backgroundColor, isColor: true, token: styles.bgToken });
+  if (styles.color)
+    rows.push({ label: 'Text Color', prop: 'color', value: styles.textToken || styles.color, isColor: true, token: styles.textToken });
+  if (styles.borderColor && styles.borderColor !== 'rgba(0, 0, 0, 0)')
+    rows.push({ label: 'Border', prop: 'borderColor', value: styles.borderToken || styles.borderColor, isColor: true, token: styles.borderToken });
+  if (styles.borderRadius && styles.borderRadius !== '0px')
+    rows.push({ label: 'Radius', prop: 'borderRadius', value: styles.borderRadius, isColor: false });
+  if (styles.fontSize)
+    rows.push({ label: 'Font Size', prop: 'fontSize', value: styles.fontSize, isColor: false });
+  if (styles.fontWeight && styles.fontWeight !== '400')
+    rows.push({ label: 'Font Weight', prop: 'fontWeight', value: styles.fontWeight, isColor: false });
+  if (styles.paddingTop || styles.paddingLeft)
+    rows.push({ label: 'Padding', prop: 'padding', value: [styles.paddingTop, styles.paddingRight, styles.paddingBottom, styles.paddingLeft].filter(Boolean).join(' ') || '—', isColor: false });
+
+  const variantName = storyId.split('--')[1] ?? 'default';
+  const scopeChanges = scope === 'base' ? baseChanges : variantChanges;
+
+  return (
+    <div style={{ padding: '0 0 4px' }}>
+
+      {/* ── Scope selector ── */}
+      <div style={{ display: 'flex', borderBottom: `1px solid ${SB.border}`, marginBottom: 0 }}>
+        {(['base', 'variant'] as InspectorScope[]).map(s => (
+          <button key={s} onClick={() => setScope(s)}
+            style={{
+              flex: 1, padding: '7px 0', fontSize: 11, fontFamily: SB.font, fontWeight: 500,
+              background: scope === s ? SB.bgHover : 'transparent',
+              color: scope === s ? SB.text : SB.textMuted,
+              border: 'none', borderBottom: scope === s ? `2px solid ${SB.accent}` : '2px solid transparent',
+              cursor: 'pointer', textTransform: 'capitalize', position: 'relative',
+            }}>
+            {s === 'base' ? 'Base' : variantName.split('-').map(w => w[0]?.toUpperCase() + w.slice(1)).join(' ')}
+            {(s === 'base' ? baseChanges : variantChanges) > 0 && (
+              <span style={{ marginLeft: 5, background: SB.accent, color: '#fff', borderRadius: 8, fontSize: 9, padding: '1px 5px' }}>
+                {s === 'base' ? baseChanges : variantChanges}
+              </span>
+            )}
           </button>
         ))}
       </div>
 
+      {/* ── Scope description ── */}
+      <div style={{ padding: '6px 14px 4px', fontSize: 10, color: SB.textMuted, borderBottom: `1px solid ${SB.border}` }}>
+        {scope === 'base'
+          ? 'Changes propagate to all variants'
+          : `Changes apply only to ${variantName}`}
+      </div>
+
+      {/* ── Style rows ── */}
+      {rows.map(row => {
+        const localVal = (scope === 'base' ? baseOverrides : variantOverrides)[row.prop];
+        const isOverridden = !!localVal;
+        const displayVal = localVal ?? row.value;
+
+        return (
+          <div key={row.prop} style={{
+            display: 'grid', gridTemplateColumns: '90px 1fr auto',
+            alignItems: 'center', gap: 8, padding: '5px 14px',
+            borderBottom: `1px solid ${SB.border}`,
+            background: isOverridden ? `${SB.accent}08` : 'transparent',
+          }}>
+            {/* Label + override dot */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: isOverridden ? SB.text : SB.textMuted }}>
+              {isOverridden && <span style={{ width: 4, height: 4, borderRadius: '50%', background: SB.accent, flexShrink: 0, display: 'inline-block' }} />}
+              {row.label}
+            </div>
+
+            {/* Value — color swatch + text or plain text */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+              {row.isColor && (
+                <span style={{ width: 14, height: 14, borderRadius: 3, background: row.isColor ? (localVal ?? styles[(row.prop as keyof ElementStyles) as 'color'] as string ?? '') : '', border: `1px solid ${SB.border}`, flexShrink: 0, display: 'inline-block' }} />
+              )}
+              <input
+                value={displayVal}
+                onChange={e => apply(row.prop, e.target.value)}
+                onBlur={e => { if (e.target.value !== row.value) apply(row.prop, e.target.value); }}
+                onKeyDown={e => { if (e.key === 'Enter') apply(row.prop, (e.target as HTMLInputElement).value); }}
+                style={{ flex: 1, background: 'transparent', border: 'none', borderBottom: `1px solid ${isOverridden ? SB.accent : 'transparent'}`, color: SB.text, fontSize: 10, fontFamily: SB.mono, outline: 'none', minWidth: 0, padding: '1px 0' }}
+              />
+            </div>
+
+            {/* Token badge if bound */}
+            {row.token ? (
+              <span style={{ fontSize: 9, color: SB.accent, fontFamily: SB.mono, opacity: 0.8, whiteSpace: 'nowrap' }}>
+                {row.token.replace(/^--/, '')}
+              </span>
+            ) : <div />}
+          </div>
+        );
+      })}
+
+      {scopeChanges > 0 && (
+        <div style={{ padding: '8px 14px', fontSize: 10, color: SB.textMuted }}>
+          {scopeChanges} pending change{scopeChanges !== 1 ? 's' : ''} on <strong style={{ color: scope === 'base' ? SB.text : SB.accent }}>{scope}</strong> — will be saved with next ↑ Save
+        </div>
+      )}
     </div>
   );
 }
@@ -2912,6 +3080,19 @@ export function DesignPanel({ active }: { active: boolean }) {
             />
           </Section>
         )}
+        {/* BASE INSPECTOR — base vs variant style editing */}
+        {storyId && (
+          <Section label="Component" noPad defaultOpen={false} forceOpen={globalOpenState}>
+            <BaseInspector
+              storyId={storyId}
+              styles={styles}
+              tokens={tokens}
+              onApplyInline={applyInlineStyle}
+              onApplyToken={(prop, value) => applyOverride(prop, value)}
+            />
+          </Section>
+        )}
+
         {/* Fetch variants silently to populate fetchedVariants state */}
         {storyId && (
           <ComponentVariants

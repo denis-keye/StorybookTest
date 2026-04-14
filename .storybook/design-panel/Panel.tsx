@@ -1469,10 +1469,18 @@ export function DesignPanel({ active }: { active: boolean }) {
           .map(t => t.name);
         colorNamesRef.current = colorNames;
         if (colorNames.length > 0) {
-          // Defer until after the preview iframe has connected
-          setTimeout(() => {
-            try { channel.emit('DESIGN/RESOLVE_TOKENS', colorNames); } catch { /* not yet ready */ }
-          }, 1200);
+          // Retry until the preview iframe has connected and responded (max 5 times).
+          let attempts = 0;
+          let resolved = false;
+          const stopRetry = () => { resolved = true; };
+          channel.once('DESIGN/RESOLVED_TOKENS', stopRetry);
+          const tryResolve = () => {
+            if (resolved) return;
+            attempts++;
+            try { channel.emit('DESIGN/RESOLVE_TOKENS', colorNames); } catch { /* channel not ready */ }
+            if (attempts < 5) setTimeout(tryResolve, 2000);
+          };
+          setTimeout(tryResolve, 1200);
         }
       })
       .catch(e => console.warn('[design-panel] token load failed:', e));

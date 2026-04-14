@@ -16,3 +16,5 @@ export const Destructive: Story = { args: { variant: 'destructive', children: 'E
 export const Outline: Story = { args: { variant: 'outline', children: 'Draft' } };
 
 export const Beta: Story = { args: { ...Secondary.args } };
+
+export const Test: Story = { args: { ...Secondary.args } };

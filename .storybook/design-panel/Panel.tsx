@@ -782,14 +782,18 @@ function SkinInput({ classList, styles, onAddClass, onRemoveClass }: {
   );
 }
 
-// ─── BaseVariantPanel ──────────────────────────────────────────────────────
-// Shows component name (Base) derived from storyId, all named story variants
-// as selectable pills, and a compact style diff for the active variant.
+// ─── BaseVariantSection ────────────────────────────────────────────────────
+// Unified section replacing Base/Variant + Class + Custom Variants + Variants.
+// Layout:
+//   BASE label  [component-name pill]  style preview row
+//   class pills (semantic + utility toggle) + [+ class] button
+//   VARIANT label  [variant pills — navigate story]
+//   CVA mode variant groups
+//   STATE toggles (hover/focus/active/disabled)
 
 function deriveComponentName(storyId: string): string {
   if (!storyId) return '';
   const parts = storyId.split('--')[0].split('-');
-  // Drop common prefixes like "ui", "components"
   const skip = new Set(['ui', 'components', 'component']);
   const meaningful = parts.filter(p => !skip.has(p.toLowerCase()));
   return meaningful.map(w => w[0]?.toUpperCase() + w.slice(1)).join(' ') || parts.join(' ');
@@ -806,7 +810,7 @@ function StylePreviewRow({ styles }: { styles: ElementStyles | null }) {
   if (styles.fontWeight && styles.fontWeight !== '400') items.push({ label: 'weight', value: styles.fontWeight, isColor: false });
   if (!items.length) return null;
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 10px', marginTop: 6 }}>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 10px', marginTop: 5 }}>
       {items.map(p => (
         <div key={p.label} style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: SB.textMuted }}>
           <span>{p.label}</span>
@@ -819,83 +823,205 @@ function StylePreviewRow({ styles }: { styles: ElementStyles | null }) {
   );
 }
 
-function BaseVariantPanel({ storyId, styles, variants, onApplyVariant }: {
-  storyId:        string;
-  styles:         ElementStyles | null;
-  variants:       Record<string, string[]>;
-  onApplyVariant: (varName: string, val: string) => void;
+// Pill style helpers
+function pillStyle(active: boolean, accent = SB.accent): React.CSSProperties {
+  return {
+    display: 'inline-flex', alignItems: 'center', gap: 4,
+    padding: '3px 9px', borderRadius: SB.radius, cursor: 'pointer',
+    fontSize: 11, fontFamily: SB.font, fontWeight: active ? 600 : 400,
+    border: `1px solid ${active ? accent : SB.border}`,
+    background: active ? `${accent}20` : 'transparent',
+    color: active ? accent : SB.textMuted,
+    transition: 'all 0.1s',
+  };
+}
+
+function SubLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ fontSize: 9, color: SB.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 5 }}>
+      {children}
+    </div>
+  );
+}
+
+function BaseVariantSection({ storyId, styles, classList, fetchedVariants, selectedPath, channel, api, onAddClass, onRemoveClass, onApplyVariant }: {
+  storyId:         string;
+  styles:          ElementStyles | null;
+  classList:       string;
+  fetchedVariants: Record<string, string[]>;
+  selectedPath:    number[];
+  channel:         ReturnType<typeof addons.getChannel>;
+  api:             ReturnType<typeof useStorybookApi>;
+  onAddClass:      (cls: string) => void;
+  onRemoveClass:   (cls: string) => void;
+  onApplyVariant:  (varName: string, val: string) => void;
 }) {
+  const componentPrefix = storyId.split('--')[0]; // e.g. "ui-badge"
+  const currentVariantSlug = storyId.split('--')[1] ?? ''; // e.g. "default"
   const componentName = deriveComponentName(storyId);
-  const currentVariant = storyId.split('--')[1] ?? '';
-  const variantLabel = currentVariant.split('-').map(w => w[0]?.toUpperCase() + w.slice(1)).join(' ');
 
-  // Collect all named story variants from the "variant" key if present
-  const variantValues: string[] = Object.entries(variants)
-    .filter(([k]) => k.toLowerCase() === 'variant' || k.toLowerCase() === 'variants')
-    .flatMap(([, vals]) => vals);
+  // Story-level variants: all story IDs sharing the same component prefix
+  // We derive them from fetchedVariants if available, else fall back to story navigation
+  const INTERACTION_VALUES = new Set(['hover', 'focus', 'active', 'disabled', 'focus-visible', 'focusvisible', 'dark', 'light']);
+  const INTERACTION_KEYS_SET = new Set(['hover', 'focus', 'active', 'disabled', 'focusvisible', 'focus-visible', 'dark', 'state']);
 
-  const allVariants = variantValues.length > 0
-    ? variantValues
-    : Object.values(variants).flat().filter((v, i, a) => a.indexOf(v) === i).slice(0, 12);
+  // CVA mode keys (non-interaction, multi-value)
+  const modeKeys = Object.keys(fetchedVariants).filter(k => {
+    if (INTERACTION_KEYS_SET.has(k.toLowerCase())) return false;
+    const unique = [...new Set(fetchedVariants[k].filter(v => !INTERACTION_VALUES.has(v.toLowerCase())))];
+    return unique.length > 1;
+  });
+
+  // Named story variants come from the sidebar data via api
+  interface StoryRef { id?: string; name?: string; }
+  const allStories = (api.getStories?.() ?? {}) as Record<string, StoryRef>;
+  const storyVariants = (Object.values(allStories) as StoryRef[])
+    .filter(s => s.id?.startsWith(componentPrefix + '--'))
+    .map(s => ({
+      id: s.id ?? '',
+      name: s.name ?? s.id?.split('--')[1] ?? '',
+      slug: s.id?.split('--')[1] ?? '',
+    }));
+
+  // Class management
+  const classes = (classList ?? '').split(/\s+/).filter(Boolean);
+  const semantics = classes.filter(c => !isTailwindUtil(c));
+  const utils = classes.filter(c => isTailwindUtil(c));
+  const [addingCls, setAddingCls] = useState(false);
+  const [clsDraft, setClsDraft] = useState('');
+  const [showUtils, setShowUtils] = useState(false);
+
+  const commitCls = () => {
+    const t = clsDraft.trim();
+    if (t) t.split(/\s+/).forEach(c => { if (c) onAddClass(c); });
+    setClsDraft(''); setAddingCls(false);
+  };
+
+  // State toggles
+  const [activeStates, setActiveStates] = useState<Set<string>>(new Set());
+  const toggleState = (pseudo: string) => {
+    const next = new Set(activeStates);
+    if (next.has(pseudo)) {
+      next.delete(pseudo);
+      channel.emit('DESIGN/REMOVE_CLASS', { path: selectedPath, cls: `pseudo-${pseudo}` });
+    } else {
+      next.add(pseudo);
+      channel.emit('DESIGN/ADD_CLASS', { path: selectedPath, cls: `pseudo-${pseudo}` });
+    }
+    setActiveStates(next);
+  };
+
+  // CVA mode active tracking
+  const [activeMode, setActiveMode] = useState<Record<string, string>>({});
+  const applyMode = (varName: string, val: string) => {
+    onApplyVariant(varName, val);
+    setActiveMode(a => ({ ...a, [varName]: val }));
+  };
+
+  const divider = <div style={{ height: 1, background: SB.border, margin: '8px 0' }} />;
+  const pad: React.CSSProperties = { padding: '8px 12px 10px' };
 
   return (
-    <div style={{ padding: '8px 12px 10px' }}>
-      {/* ── Base row ── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 9, color: SB.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 3 }}>Base</div>
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: 5,
-            background: `${SB.accent}18`, border: `1px solid ${SB.accent}44`,
-            borderRadius: SB.radius, padding: '3px 8px',
-            fontSize: 12, color: SB.accent, fontFamily: SB.mono, fontWeight: 600,
-          }}>
-            {componentName || '—'}
-          </div>
-          <StylePreviewRow styles={styles} />
-        </div>
+    <div style={pad}>
 
-        {/* ── Active variant badge ── */}
-        {variantLabel && (
-          <div style={{ flexShrink: 0 }}>
-            <div style={{ fontSize: 9, color: SB.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 3 }}>Variant</div>
-            <div style={{
-              display: 'inline-flex', alignItems: 'center',
-              background: SB.bgHover, border: `1px solid ${SB.border}`,
-              borderRadius: SB.radius, padding: '3px 8px',
-              fontSize: 11, color: SB.text, fontFamily: SB.mono,
-            }}>
-              {variantLabel}
-            </div>
-          </div>
+      {/* ── BASE ── */}
+      <SubLabel>Base</SubLabel>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5,
+        background: `${SB.accent}18`, border: `1px solid ${SB.accent}44`,
+        borderRadius: SB.radius, padding: '3px 9px',
+        fontSize: 12, color: SB.accent, fontFamily: SB.mono, fontWeight: 600 }}>
+        {componentName || '—'}
+      </div>
+      <StylePreviewRow styles={styles} />
+
+      {/* ── CLASSES ── */}
+      {divider}
+      <SubLabel>Class</SubLabel>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+        {semantics.map(cls => (
+          <span key={cls} style={{ ...pillStyle(true), padding: '2px 6px 2px 7px', fontSize: 11, fontFamily: SB.mono }}>
+            {cls}
+            <button onClick={() => onRemoveClass(cls)}
+              style={{ background: 'none', border: 'none', color: SB.accent, opacity: 0.7, cursor: 'pointer', padding: 0, fontSize: 10, lineHeight: 1 }}>×</button>
+          </span>
+        ))}
+        {addingCls ? (
+          <input autoFocus value={clsDraft} onChange={e => setClsDraft(e.target.value)}
+            onBlur={commitCls}
+            onKeyDown={e => { if (e.key === 'Enter') commitCls(); if (e.key === 'Escape') { setClsDraft(''); setAddingCls(false); } }}
+            placeholder="class-name" spellCheck={false}
+            style={{ background: SB.bgSecondary, border: `1px solid ${SB.accent}`, borderRadius: SB.radius, color: SB.text, fontSize: 11, padding: '2px 6px', outline: 'none', fontFamily: SB.mono, width: 100 }} />
+        ) : (
+          <button onClick={() => setAddingCls(true)}
+            style={{ background: 'none', border: `1px dashed ${SB.border}`, borderRadius: SB.radius, color: SB.textMuted, cursor: 'pointer', fontSize: 11, padding: '2px 7px', fontFamily: SB.font, lineHeight: 1.4 }}
+            onMouseEnter={e => { (e.currentTarget).style.borderColor = SB.accent; (e.currentTarget).style.color = SB.accent; }}
+            onMouseLeave={e => { (e.currentTarget).style.borderColor = SB.border; (e.currentTarget).style.color = SB.textMuted; }}>
+            + class
+          </button>
+        )}
+        {utils.length > 0 && (
+          <button onClick={() => setShowUtils(v => !v)}
+            style={{ background: 'none', border: `1px solid ${SB.border}`, borderRadius: SB.radius, color: SB.textMuted, cursor: 'pointer', fontSize: 9, padding: '2px 6px', fontFamily: SB.mono, opacity: showUtils ? 1 : 0.6 }}>
+            {showUtils ? '▾' : '▸'} {utils.length}
+          </button>
         )}
       </div>
-
-      {/* ── Switch variant pills ── */}
-      {allVariants.length > 0 && (
-        <div>
-          <div style={{ fontSize: 9, color: SB.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>Switch</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            {allVariants.map(v => {
-              const isActive = v.toLowerCase() === currentVariant.replace(/-/g, '').toLowerCase() ||
-                               v.toLowerCase() === variantLabel.toLowerCase();
-              return (
-                <button key={v} onClick={() => onApplyVariant('variant', v)}
-                  style={{
-                    padding: '2px 8px', borderRadius: SB.radius, fontSize: 11,
-                    fontFamily: SB.font, cursor: 'pointer',
-                    border: `1px solid ${isActive ? SB.accent : SB.border}`,
-                    background: isActive ? SB.accentGlow : 'transparent',
-                    color: isActive ? SB.accent : SB.textMuted,
-                    fontWeight: isActive ? 600 : 400,
-                  }}>
-                  {v}
-                </button>
-              );
-            })}
-          </div>
+      {showUtils && utils.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 5 }}>
+          {utils.map(cls => (
+            <span key={cls} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, background: SB.bgSecondary, border: `1px solid ${SB.border}`, borderRadius: SB.radiusSm, padding: '1px 5px', fontSize: 9, color: SB.textMuted, fontFamily: SB.mono }}>
+              {cls}
+              <button onClick={() => onRemoveClass(cls)} style={{ background: 'none', border: 'none', color: SB.textMuted, cursor: 'pointer', padding: '0 0 0 2px', fontSize: 9, lineHeight: 1 }}>×</button>
+            </span>
+          ))}
         </div>
       )}
+
+      {/* ── VARIANT (named story exports) ── */}
+      {storyVariants.length > 1 && (<>
+        {divider}
+        <SubLabel>Variant</SubLabel>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          {storyVariants.map(sv => {
+            const isActive = sv.slug === currentVariantSlug;
+            return (
+              <button key={sv.id} onClick={() => api.selectStory?.(componentPrefix, sv.slug)}
+                style={pillStyle(isActive)}>
+                {sv.name}
+              </button>
+            );
+          })}
+        </div>
+      </>)}
+
+      {/* ── CVA mode groups ── */}
+      {modeKeys.map(varName => {
+        const vals = [...new Set(fetchedVariants[varName].filter(v => !INTERACTION_VALUES.has(v.toLowerCase())))];
+        return (
+          <div key={varName} style={{ marginTop: 8 }}>
+            <SubLabel>{varName}</SubLabel>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {vals.map(val => (
+                <button key={val} onClick={() => applyMode(varName, val)} style={pillStyle(activeMode[varName] === val)}>
+                  {val}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+
+      {/* ── STATE ── */}
+      {divider}
+      <SubLabel>State</SubLabel>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+        {INTERACTION_STATES.map(({ label, pseudo }) => (
+          <button key={pseudo} onClick={() => toggleState(pseudo)} style={pillStyle(activeStates.has(pseudo))}>
+            {label}
+          </button>
+        ))}
+      </div>
+
     </div>
   );
 }
@@ -1442,12 +1568,13 @@ const INTERACTION_STATES = [
 // (they duplicate the interaction toggles above)
 const INTERACTION_KEYS = new Set(['hover', 'focus', 'active', 'disabled', 'focusVisible', 'focus-visible', 'dark', 'state']);
 
-function ComponentVariants({ storyId, selectedPath, channel, onApplyVariant, onVariantsFetched }: {
+function ComponentVariants({ storyId, selectedPath, channel, onApplyVariant, onVariantsFetched, headless }: {
   storyId: string;
   selectedPath: number[];
   channel: ReturnType<typeof addons.getChannel>;
   onApplyVariant: (varName: string, val: string) => void;
   onVariantsFetched?: (v: Record<string, string[]>) => void;
+  headless?: boolean;
 }) {
   const [variants,    setVariants]    = useState<Record<string, string[]>>({});
   const [activeMode,  setActiveMode]  = useState<Record<string, string>>({});
@@ -1496,6 +1623,8 @@ function ComponentVariants({ storyId, selectedPath, channel, onApplyVariant, onV
     }
     setActiveStates(next);
   };
+
+  if (headless) return null;
 
   return (
     <div>
@@ -2709,86 +2838,33 @@ export function DesignPanel({ active }: { active: boolean }) {
           )}
         </Section>
 
-        {/* BASE + VARIANT */}
+        {/* BASE / VARIANT / CLASS / STATE — unified */}
         {storyId && (
           <Section label="Base / Variant" noPad forceOpen={globalOpenState}>
-            <BaseVariantPanel
+            <BaseVariantSection
               storyId={storyId}
               styles={styles}
-              variants={fetchedVariants}
+              classList={styles?.classList ?? ''}
+              fetchedVariants={fetchedVariants}
+              selectedPath={selectedPath}
+              channel={channel}
+              api={api}
+              onAddClass={addClass}
+              onRemoveClass={removeClass}
               onApplyVariant={applyVariant}
             />
           </Section>
         )}
-
-        {/* CLASSES */}
-        {styles && (
-          <Section label="Class" noPad forceOpen={globalOpenState}>
-            <SkinInput classList={styles.classList ?? ''} styles={styles} onAddClass={addClass} onRemoveClass={removeClass} />
-          </Section>
-        )}
-
-        {/* CUSTOM GLOBAL VARIANTS */}
-        <Section label="Custom Variants" defaultOpen={false} forceOpen={globalOpenState}>
-          <div style={{ marginBottom: 8 }}>
-            {customVariants.length === 0 && (
-              <div style={{ fontSize: 11, color: SB.textMuted, marginBottom: 6 }}>No custom variants yet.</div>
-            )}
-            {customVariants.map(cv => (
-              <div key={cv.name} style={{ marginBottom: 6 }}>
-                <div style={{ fontSize: 9, color: SB.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 3 }}>{cv.name}</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-                  {cv.values.map(v => (
-                    <button key={v} onClick={() => applyVariant(cv.name, v)}
-                      style={{ padding: '2px 8px', borderRadius: SB.radius, fontSize: 11, fontFamily: SB.font, border: `1px solid ${SB.border}`, background: 'transparent', color: SB.textMuted, cursor: 'pointer' }}>
-                      {v}
-                    </button>
-                  ))}
-                  <button onClick={() => setCustomVariants(prev => prev.filter(x => x.name !== cv.name))}
-                    style={{ padding: '2px 5px', borderRadius: SB.radius, fontSize: 10, border: `1px solid ${SB.border}`, background: 'transparent', color: SB.textMuted, cursor: 'pointer' }}>
-                    ×
-                  </button>
-                </div>
-              </div>
-            ))}
-            {!cvOpen ? (
-              <button onClick={() => setCvOpen(true)}
-                style={{ fontSize: 10, color: SB.accent, background: 'none', border: `1px dashed ${SB.accent}`, borderRadius: SB.radiusSm, padding: '2px 8px', cursor: 'pointer', fontFamily: SB.font }}>
-                + Add variant group
-              </button>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
-                <input placeholder="Name (e.g. size)" value={cvName} onChange={e => setCvName(e.target.value)}
-                  style={{ background: SB.bgSecondary, border: `1px solid ${SB.border}`, borderRadius: SB.radiusSm, color: SB.text, fontSize: 11, padding: '3px 7px', outline: 'none', fontFamily: SB.font }} />
-                <input placeholder="Values comma-separated (e.g. sm,md,lg)" value={cvValues} onChange={e => setCvValues(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && cvName.trim() && cvValues.trim()) {
-                      setCustomVariants(prev => [...prev, { name: cvName.trim(), values: cvValues.split(',').map(v => v.trim()).filter(Boolean) }]);
-                      setCvName(''); setCvValues(''); setCvOpen(false);
-                    }
-                    if (e.key === 'Escape') { setCvOpen(false); setCvName(''); setCvValues(''); }
-                  }}
-                  style={{ background: SB.bgSecondary, border: `1px solid ${SB.border}`, borderRadius: SB.radiusSm, color: SB.text, fontSize: 11, padding: '3px 7px', outline: 'none', fontFamily: SB.font }} />
-                <div style={{ display: 'flex', gap: 4 }}>
-                  <button onClick={() => {
-                    if (cvName.trim() && cvValues.trim()) {
-                      setCustomVariants(prev => [...prev, { name: cvName.trim(), values: cvValues.split(',').map(v => v.trim()).filter(Boolean) }]);
-                      setCvName(''); setCvValues(''); setCvOpen(false);
-                    }
-                  }} style={{ flex: 1, background: SB.accent, border: 'none', borderRadius: SB.radiusSm, color: '#fff', fontSize: 11, padding: '3px 0', cursor: 'pointer', fontFamily: SB.font }}>Add</button>
-                  <button onClick={() => { setCvOpen(false); setCvName(''); setCvValues(''); }}
-                    style={{ background: 'transparent', border: `1px solid ${SB.border}`, borderRadius: SB.radiusSm, color: SB.textMuted, fontSize: 11, padding: '3px 8px', cursor: 'pointer', fontFamily: SB.font }}>×</button>
-                </div>
-              </div>
-            )}
-          </div>
-        </Section>
-
-        {/* COMPONENT VARIANTS */}
+        {/* Fetch variants silently to populate fetchedVariants state */}
         {storyId && (
-          <Section label="Variants" defaultOpen={true} forceOpen={globalOpenState}>
-            <ComponentVariants storyId={storyId} selectedPath={selectedPath} channel={channel} onApplyVariant={applyVariant} onVariantsFetched={setFetchedVariants} />
-          </Section>
+          <ComponentVariants
+            headless
+            storyId={storyId}
+            selectedPath={selectedPath}
+            channel={channel}
+            onApplyVariant={applyVariant}
+            onVariantsFetched={setFetchedVariants}
+          />
         )}
 
         {/* LAYOUT */}

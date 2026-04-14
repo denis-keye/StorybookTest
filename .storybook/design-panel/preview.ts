@@ -131,6 +131,10 @@ function buildTree(el: Element, path: number[] = [], depth = 0): TreeNode {
 
 // ─── Channel handlers ─────────────────────────────────────────────────────────
 
+function getStoryContainer(): Element | null {
+  return document.querySelector('#storybook-root, #root');
+}
+
 function getStoryRoot(): Element | null {
   return document.querySelector('#storybook-root > *, #root > *');
 }
@@ -546,12 +550,26 @@ channel.on('DESIGN/WRAP_IN_DIV', ({ path }: { path: number[] }) => {
 
 // Insert an empty inline sibling span after the target element, rebuild tree
 channel.on('DESIGN/INSERT_SIBLING', ({ path }: { path: number[] }) => {
-  const el = path.length === 0 ? getStoryRoot() : getElementByPath(path);
-  if (!(el instanceof HTMLElement) || !el.parentElement) return;
+  let parent: HTMLElement | null = null;
+  let insertAfter: Element | null = null;
+
+  if (path.length === 0) {
+    // Root element selected — append inside it (as last child) so it stays in the tree
+    const root = getStoryRoot();
+    if (!(root instanceof HTMLElement)) return;
+    parent = root;
+    insertAfter = root.lastElementChild;
+  } else {
+    const el = getElementByPath(path);
+    if (!(el instanceof HTMLElement) || !el.parentElement) return;
+    parent = el.parentElement;
+    insertAfter = el;
+  }
+
   const sibling = document.createElement('span');
   sibling.textContent = 'New element';
   sibling.style.cssText = 'display:inline-block;min-width:4px;min-height:4px;';
-  el.parentElement.insertBefore(sibling, el.nextSibling);
+  parent.insertBefore(sibling, insertAfter ? insertAfter.nextSibling : null);
   // Defer so the browser lays out the new element before buildTree measures bounding rects
   requestAnimationFrame(() => {
     channel.emit('DESIGN/BUILD_TREE');

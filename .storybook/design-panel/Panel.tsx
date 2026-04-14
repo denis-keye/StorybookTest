@@ -1442,6 +1442,14 @@ export function DesignPanel({ active }: { active: boolean }) {
     applyCanvasTheme(previewMode, canvasBg);
   }, [previewMode, canvasBg, applyCanvasTheme]);
 
+  // Re-apply theme whenever the preview iframe signals it's ready (it may have loaded
+  // after the panel already emitted SET_THEME, so the initial emit was lost).
+  useEffect(() => {
+    const onReady = () => applyCanvasTheme(previewMode, canvasBg);
+    channel.on('DESIGN/PREVIEW_READY', onReady);
+    return () => { channel.off('DESIGN/PREVIEW_READY', onReady); };
+  }, [channel, previewMode, canvasBg, applyCanvasTheme]);
+
   // ── Custom global variants ────────────────────────────────────────────────────
   const [customVariants, setCustomVariants] = useState<Array<{ name: string; values: string[] }>>([]);
   const [cvOpen, setCvOpen] = useState(false);
@@ -1916,7 +1924,10 @@ export function DesignPanel({ active }: { active: boolean }) {
               <div style={{ borderTop: `1px solid ${SB.border}`, padding: '8px 14px' }}>
                 <div style={{ fontSize: 10, color: SB.textMuted, marginBottom: 5 }}>New story variant — copies current args</div>
                 {variantStatus === 'done' ? (
-                  <div style={{ color: SB.success, fontSize: 11 }}>✓ Added — Storybook will reload automatically</div>
+                  <div style={{ fontSize: 11 }}>
+                    <div style={{ color: SB.success }}>✓ Variant added to GitHub</div>
+                    <div style={{ color: SB.textMuted, marginTop: 3 }}>It will appear in the sidebar after the next Vercel deploy (push to main triggers a rebuild).</div>
+                  </div>
                 ) : (
                   <>
                     {variantStatus === 'error' && (

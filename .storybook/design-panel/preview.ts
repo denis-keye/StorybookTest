@@ -525,6 +525,12 @@ channel.on('DESIGN/SET_THEME', ({ theme }: { theme: 'light' | 'dark' }) => {
   }
 });
 
+// Tell the panel that the preview iframe is ready so it can re-apply current theme/bg.
+// This fires after all channel.on() listeners are registered.
+setTimeout(() => {
+  channel.emit('DESIGN/PREVIEW_READY');
+}, 0);
+
 // Wrap the target element in a new empty div, rebuild tree
 channel.on('DESIGN/WRAP_IN_DIV', ({ path }: { path: number[] }) => {
   const el = path.length === 0 ? getStoryRoot() : getElementByPath(path);

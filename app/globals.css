@@ -49,6 +49,7 @@
 }
 
 :root {
+  --content-primary: var(--green-600);
   --border-primary: var(--sidebar-accent-foreground);
   --bg-primary: var(--blue-500);
   --bg-primary: var(--blue-500);

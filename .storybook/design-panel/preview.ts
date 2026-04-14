@@ -543,10 +543,13 @@ channel.on('DESIGN/INSERT_SIBLING', ({ path }: { path: number[] }) => {
   if (!(el instanceof HTMLElement) || !el.parentElement) return;
   const sibling = document.createElement('span');
   sibling.textContent = 'New element';
-  sibling.style.display = 'inline';
+  sibling.style.cssText = 'display:inline-block;min-width:4px;min-height:4px;';
   el.parentElement.insertBefore(sibling, el.nextSibling);
-  channel.emit('DESIGN/BUILD_TREE');
-  channel.emit('DESIGN/TREE', buildTree(getStoryRoot()!));
+  // Defer so the browser lays out the new element before buildTree measures bounding rects
+  requestAnimationFrame(() => {
+    channel.emit('DESIGN/BUILD_TREE');
+    channel.emit('DESIGN/TREE', buildTree(getStoryRoot()!));
+  });
 });
 
 export const decorators: Decorator[] = [];

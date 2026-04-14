@@ -115,8 +115,11 @@
     border-top: none !important;
     padding: 0 !important;
     gap: 0 !important;
-    height: 32px !important;
+    height: 48px !important;
     display: flex !important;
+    flex-direction: row !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
   }
 
   [role="tab"] {
@@ -126,11 +129,15 @@
     letter-spacing: 0.06em !important;
     text-transform: uppercase !important;
     color: var(--sb-muted) !important;
+    /* Kill ALL border variants Storybook may apply */
     border: none !important;
+    border-width: 0 !important;
+    border-style: none !important;
     border-bottom: none !important;
     border-radius: 0 !important;
     padding: 0 12px !important;
-    height: 32px !important;
+    height: 48px !important;
+    line-height: 48px !important;
     display: inline-flex !important;
     align-items: center !important;
     justify-content: center !important;
@@ -142,15 +149,22 @@
     white-space: nowrap !important;
     outline: none !important;
     box-shadow: none !important;
+    text-decoration: none !important;
   }
   [role="tab"]:hover {
     color: var(--sb-text) !important;
     background: rgba(255,255,255,0.04) !important;
   }
-  [role="tab"][aria-selected="true"] {
+  [role="tab"][aria-selected="true"],
+  [role="tab"].tabbutton-active,
+  button[class*="tabbutton-active"] {
     color: var(--sb-accent) !important;
+    border: none !important;
+    border-width: 0 !important;
+    border-style: none !important;
     border-bottom: none !important;
     background: rgba(2,156,253,0.06) !important;
+    box-shadow: none !important;
   }
 
   /* Kill ALL pill/badge styling inside tabs — target every span descendant */

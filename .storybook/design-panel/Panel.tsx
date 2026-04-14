@@ -782,6 +782,528 @@ function SkinInput({ classList, styles, onAddClass, onRemoveClass }: {
   );
 }
 
+// ─── BaseVariantPanel ──────────────────────────────────────────────────────
+// Shows component name (Base) derived from storyId, all named story variants
+// as selectable pills, and a compact style diff for the active variant.
+
+function deriveComponentName(storyId: string): string {
+  if (!storyId) return '';
+  const parts = storyId.split('--')[0].split('-');
+  // Drop common prefixes like "ui", "components"
+  const skip = new Set(['ui', 'components', 'component']);
+  const meaningful = parts.filter(p => !skip.has(p.toLowerCase()));
+  return meaningful.map(w => w[0]?.toUpperCase() + w.slice(1)).join(' ') || parts.join(' ');
+}
+
+function StylePreviewRow({ styles }: { styles: ElementStyles | null }) {
+  if (!styles) return null;
+  const items: { label: string; value: string; isColor: boolean }[] = [];
+  if (styles.backgroundColor && styles.backgroundColor !== 'rgba(0, 0, 0, 0)' && styles.backgroundColor !== 'transparent')
+    items.push({ label: 'bg', value: styles.backgroundColor, isColor: true });
+  if (styles.color) items.push({ label: 'color', value: styles.color, isColor: true });
+  if (styles.borderRadius && styles.borderRadius !== '0px') items.push({ label: 'radius', value: styles.borderRadius, isColor: false });
+  if (styles.fontSize) items.push({ label: 'size', value: styles.fontSize, isColor: false });
+  if (styles.fontWeight && styles.fontWeight !== '400') items.push({ label: 'weight', value: styles.fontWeight, isColor: false });
+  if (!items.length) return null;
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 10px', marginTop: 6 }}>
+      {items.map(p => (
+        <div key={p.label} style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: SB.textMuted }}>
+          <span>{p.label}</span>
+          {p.isColor
+            ? <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: p.value, border: `1px solid ${SB.border}`, flexShrink: 0 }} />
+            : <span style={{ color: SB.text, fontFamily: SB.mono }}>{p.value}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BaseVariantPanel({ storyId, styles, variants, onApplyVariant }: {
+  storyId:        string;
+  styles:         ElementStyles | null;
+  variants:       Record<string, string[]>;
+  onApplyVariant: (varName: string, val: string) => void;
+}) {
+  const componentName = deriveComponentName(storyId);
+  const currentVariant = storyId.split('--')[1] ?? '';
+  const variantLabel = currentVariant.split('-').map(w => w[0]?.toUpperCase() + w.slice(1)).join(' ');
+
+  // Collect all named story variants from the "variant" key if present
+  const variantValues: string[] = Object.entries(variants)
+    .filter(([k]) => k.toLowerCase() === 'variant' || k.toLowerCase() === 'variants')
+    .flatMap(([, vals]) => vals);
+
+  const allVariants = variantValues.length > 0
+    ? variantValues
+    : Object.values(variants).flat().filter((v, i, a) => a.indexOf(v) === i).slice(0, 12);
+
+  return (
+    <div style={{ padding: '8px 12px 10px' }}>
+      {/* ── Base row ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 9, color: SB.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 3 }}>Base</div>
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+            background: `${SB.accent}18`, border: `1px solid ${SB.accent}44`,
+            borderRadius: SB.radius, padding: '3px 8px',
+            fontSize: 12, color: SB.accent, fontFamily: SB.mono, fontWeight: 600,
+          }}>
+            {componentName || '—'}
+          </div>
+          <StylePreviewRow styles={styles} />
+        </div>
+
+        {/* ── Active variant badge ── */}
+        {variantLabel && (
+          <div style={{ flexShrink: 0 }}>
+            <div style={{ fontSize: 9, color: SB.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 3 }}>Variant</div>
+            <div style={{
+              display: 'inline-flex', alignItems: 'center',
+              background: SB.bgHover, border: `1px solid ${SB.border}`,
+              borderRadius: SB.radius, padding: '3px 8px',
+              fontSize: 11, color: SB.text, fontFamily: SB.mono,
+            }}>
+              {variantLabel}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Switch variant pills ── */}
+      {allVariants.length > 0 && (
+        <div>
+          <div style={{ fontSize: 9, color: SB.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>Switch</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {allVariants.map(v => {
+              const isActive = v.toLowerCase() === currentVariant.replace(/-/g, '').toLowerCase() ||
+                               v.toLowerCase() === variantLabel.toLowerCase();
+              return (
+                <button key={v} onClick={() => onApplyVariant('variant', v)}
+                  style={{
+                    padding: '2px 8px', borderRadius: SB.radius, fontSize: 11,
+                    fontFamily: SB.font, cursor: 'pointer',
+                    border: `1px solid ${isActive ? SB.accent : SB.border}`,
+                    background: isActive ? SB.accentGlow : 'transparent',
+                    color: isActive ? SB.accent : SB.textMuted,
+                    fontWeight: isActive ? 600 : 400,
+                  }}>
+                  {v}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── ContentBindingPanel ────────────────────────────────────────────────────
+// Shows story args as editable rows with binding type selector.
+// text args → only allow "text" (static literal) or "dynamic"
+// other args → "token" or "dynamic"
+
+type BindingType = 'text' | 'token' | 'dynamic';
+
+interface ContentSlot {
+  prop:    string;
+  value:   string;
+  binding: BindingType;
+}
+
+function ContentBindingPanel({ storyId, tokens, onSave }: {
+  storyId: string;
+  tokens:  TokenEntry[];
+  onSave:  (prop: string, value: string) => void;
+}) {
+  const [slots,   setSlots]   = useState<ContentSlot[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!storyId) return;
+    setLoading(true);
+    fetch(`${API_BASE}/api/story-args?storyId=${encodeURIComponent(storyId)}`)
+      .then(r => r.json())
+      .then((d: { args?: Record<string, unknown> }) => {
+        if (d.args) {
+          const loaded: ContentSlot[] = Object.entries(d.args).map(([prop, val]) => {
+            const raw = String(val ?? '');
+            const isDynamic = raw.startsWith('{') && raw.endsWith('}');
+            const isText = typeof val === 'string';
+            return {
+              prop,
+              value: raw,
+              binding: isDynamic ? 'dynamic' : isText ? 'text' : 'token',
+            };
+          });
+          setSlots(loaded);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [storyId]);
+
+  const update = (prop: string, field: 'value' | 'binding', v: string) => {
+    setSlots(prev => prev.map(s => s.prop === prop ? { ...s, [field]: v } : s));
+  };
+
+  if (!storyId) return null;
+  if (loading) return <div style={{ padding: '8px 12px', fontSize: 11, color: SB.textMuted }}>Loading…</div>;
+  if (!slots.length) return <div style={{ padding: '8px 12px', fontSize: 11, color: SB.textMuted }}>No args defined.</div>;
+
+  return (
+    <div style={{ padding: '4px 0' }}>
+      {slots.map(slot => (
+        <div key={slot.prop} style={{
+          display: 'grid', gridTemplateColumns: '80px 1fr 72px', gap: 4,
+          alignItems: 'center', padding: '4px 12px',
+          borderBottom: `1px solid ${SB.border}`,
+        }}>
+          {/* Prop name */}
+          <div style={{ fontSize: 10, color: SB.textMuted, fontFamily: SB.mono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={slot.prop}>
+            {slot.prop}
+          </div>
+
+          {/* Value input */}
+          <input
+            value={slot.value}
+            onChange={e => update(slot.prop, 'value', e.target.value)}
+            onBlur={e => { e.currentTarget.style.borderColor = SB.border; onSave(slot.prop, slot.value); }}
+            onKeyDown={e => { if (e.key === 'Enter') onSave(slot.prop, slot.value); }}
+            onFocus={e => (e.currentTarget.style.borderColor = SB.accent)}
+            spellCheck={false}
+            style={{
+              background: SB.bgSecondary, border: `1px solid ${SB.border}`,
+              borderRadius: SB.radiusSm, color: slot.binding === 'dynamic' ? SB.accent : SB.text,
+              fontSize: 11, padding: '2px 6px', outline: 'none', fontFamily: SB.mono,
+              fontStyle: slot.binding === 'dynamic' ? 'italic' : 'normal',
+            }}
+          />
+
+          {/* Binding selector */}
+          <select
+            value={slot.binding}
+            onChange={e => update(slot.prop, 'binding', e.target.value)}
+            style={{
+              background: SB.bgSecondary, border: `1px solid ${SB.border}`,
+              borderRadius: SB.radiusSm, color: SB.textMuted, fontSize: 10,
+              padding: '2px 4px', outline: 'none', fontFamily: SB.font, cursor: 'pointer',
+            }}>
+            <option value="text">text</option>
+            <option value="token">token</option>
+            <option value="dynamic">dynamic</option>
+          </select>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── TokensTable ────────────────────────────────────────────────────────────
+// Figma-style token table: left sidebar (groups), columns per mode,
+// inline color/value editing, add mode, save to PR.
+
+interface TTokenRow {
+  name:   string;
+  group:  string;
+  type:   'color' | 'size' | 'other';
+  modes:  Record<string, string>;
+}
+
+interface TCollection {
+  modes:  string[];
+  groups: string[];
+  tokens: TTokenRow[];
+}
+
+function TokensTable({ apiBase, onMarkChanged }: {
+  apiBase:       string;
+  onMarkChanged: () => void;
+}) {
+  const [collection, setCollection] = useState<TCollection | null>(null);
+  const [loading,    setLoading]    = useState(false);
+  const [error,      setError]      = useState('');
+  const [search,     setSearch]     = useState('');
+  const [activeGroup, setActiveGroup] = useState<string>('All');
+  const [edits,      setEdits]      = useState<Record<string, Record<string, string>>>({});
+  const [saving,     setSaving]     = useState(false);
+  const [saved,      setSaved]      = useState(false);
+  const [addingMode, setAddingMode] = useState(false);
+  const [newModeName, setNewModeName] = useState('');
+
+  const load = useCallback(() => {
+    setLoading(true);
+    setError('');
+    fetch(`${apiBase}/api/tokens-table`)
+      .then(r => r.json())
+      .then((d: TCollection & { error?: string }) => {
+        if (d.error) { setError(d.error); return; }
+        setCollection(d);
+      })
+      .catch(e => setError(String(e)))
+      .finally(() => setLoading(false));
+  }, [apiBase]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const setEdit = (name: string, mode: string, value: string) => {
+    setEdits(prev => ({
+      ...prev,
+      [name]: { ...(prev[name] ?? {}), [mode]: value },
+    }));
+    onMarkChanged();
+  };
+
+  const pendingChanges = Object.entries(edits).flatMap(([name, modes]) =>
+    Object.entries(modes).map(([mode, value]) => ({ name, mode, value }))
+  );
+
+  const saveEdits = async () => {
+    if (!pendingChanges.length) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${apiBase}/api/tokens-table`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ changes: pendingChanges }),
+      });
+      const d = await res.json() as { ok?: boolean; error?: string };
+      if (d.ok) {
+        setEdits({});
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+        load();
+      } else {
+        setError(d.error ?? 'Save failed');
+      }
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addMode = () => {
+    const name = newModeName.trim().toLowerCase().replace(/\s+/g, '-');
+    if (!name || !collection) return;
+    setCollection(prev => {
+      if (!prev || prev.modes.includes(name)) return prev;
+      return {
+        ...prev,
+        modes: [...prev.modes, name],
+        tokens: prev.tokens.map(t => ({ ...t, modes: { ...t.modes, [name]: '' } })),
+      };
+    });
+    // Write skeleton to CSS via save
+    fetch(`${apiBase}/api/tokens-table`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ changes: [], newModes: [name] }),
+    }).catch(() => {});
+    setNewModeName('');
+    setAddingMode(false);
+  };
+
+  if (loading) return <div style={{ padding: '12px 14px', color: SB.textMuted, fontSize: 11 }}>Loading tokens…</div>;
+  if (error)   return <div style={{ padding: '12px 14px', color: '#ff6b6b', fontSize: 11 }}>{error}</div>;
+  if (!collection) return null;
+
+  const groups = ['All', ...collection.groups];
+  const visibleTokens = collection.tokens.filter(t => {
+    if (activeGroup !== 'All' && t.group !== activeGroup) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      return t.name.toLowerCase().includes(q) || t.group.toLowerCase().includes(q);
+    }
+    return true;
+  });
+
+  // Group tokens for display
+  const grouped = new Map<string, TTokenRow[]>();
+  for (const t of visibleTokens) {
+    const g = t.group;
+    if (!grouped.has(g)) grouped.set(g, []);
+    grouped.get(g)!.push(t);
+  }
+
+  const modeCount = collection.modes.length;
+
+  return (
+    <div style={{ display: 'flex', height: '100%', minHeight: 0 }}>
+      {/* ── Left sidebar: group list ── */}
+      <div style={{
+        width: 110, flexShrink: 0, borderRight: `1px solid ${SB.border}`,
+        overflowY: 'auto', paddingTop: 4,
+      }}>
+        {groups.map(g => (
+          <button key={g} onClick={() => setActiveGroup(g)}
+            style={{
+              display: 'block', width: '100%', textAlign: 'left',
+              padding: '4px 10px', fontSize: 10, fontFamily: SB.font,
+              background: activeGroup === g ? SB.accentGlow : 'transparent',
+              color: activeGroup === g ? SB.accent : SB.textMuted,
+              border: 'none', cursor: 'pointer',
+              borderLeft: activeGroup === g ? `2px solid ${SB.accent}` : '2px solid transparent',
+            }}>
+            {g}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Main table area ── */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        {/* Table toolbar */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderBottom: `1px solid ${SB.border}`, flexShrink: 0 }}>
+          <input
+            value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search tokens…"
+            style={{ flex: 1, background: SB.bgSecondary, border: `1px solid ${SB.border}`, borderRadius: SB.radiusSm, color: SB.text, fontSize: 11, padding: '3px 7px', outline: 'none', fontFamily: SB.font }}
+            onFocus={e => (e.currentTarget.style.borderColor = SB.accent)}
+            onBlur={e => (e.currentTarget.style.borderColor = SB.border)}
+          />
+          {pendingChanges.length > 0 && (
+            <button onClick={saveEdits} disabled={saving}
+              style={{ background: SB.accent, border: 'none', borderRadius: SB.radiusSm, color: '#fff', fontSize: 11, padding: '3px 8px', cursor: 'pointer', fontFamily: SB.font, fontWeight: 600, flexShrink: 0 }}>
+              {saving ? '…' : `↑ Save ${pendingChanges.length}`}
+            </button>
+          )}
+          {saved && <span style={{ color: SB.success, fontSize: 10, flexShrink: 0 }}>✓ Saved</span>}
+        </div>
+
+        {/* Column headers */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: `1fr ${collection.modes.map(() => '100px').join(' ')} 28px`,
+          gap: 0, borderBottom: `1px solid ${SB.border}`,
+          background: SB.bgSecondary, flexShrink: 0,
+        }}>
+          <div style={{ padding: '4px 10px', fontSize: 9, color: SB.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Name</div>
+          {collection.modes.map((mode, i) => (
+            <div key={mode} style={{ padding: '4px 6px', fontSize: 9, color: i === 0 ? SB.text : SB.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: i === 0 ? 600 : 400 }}>
+              {mode === 'default' ? 'Default' : mode}
+            </div>
+          ))}
+          {/* + Add mode */}
+          <div style={{ padding: '2px 0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {addingMode ? (
+              <input
+                autoFocus
+                value={newModeName}
+                onChange={e => setNewModeName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') addMode(); if (e.key === 'Escape') { setAddingMode(false); setNewModeName(''); } }}
+                onBlur={addMode}
+                placeholder="name"
+                style={{ width: 60, background: SB.bg, border: `1px solid ${SB.accent}`, borderRadius: SB.radiusSm, color: SB.text, fontSize: 9, padding: '1px 3px', outline: 'none', fontFamily: SB.mono }}
+              />
+            ) : (
+              <button onClick={() => setAddingMode(true)} title="Add mode"
+                style={{ background: 'none', border: 'none', color: SB.textMuted, cursor: 'pointer', fontSize: 12, padding: '0 2px', lineHeight: 1 }}>+</button>
+            )}
+          </div>
+        </div>
+
+        {/* Token rows */}
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          {[...grouped.entries()].map(([groupName, rows]) => (
+            <div key={groupName}>
+              {/* Group header */}
+              <div style={{ padding: '5px 10px 3px', fontSize: 9, color: SB.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em', background: SB.bgSecondary, borderBottom: `1px solid ${SB.border}` }}>
+                {groupName}
+              </div>
+              {rows.map(token => (
+                <TokenTableRow
+                  key={token.name}
+                  token={token}
+                  modes={collection.modes}
+                  modeCount={modeCount}
+                  localEdits={edits[token.name] ?? {}}
+                  onEdit={(mode, value) => setEdit(token.name, mode, value)}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TokenTableRow({ token, modes, modeCount, localEdits, onEdit }: {
+  token:      TTokenRow;
+  modes:      string[];
+  modeCount:  number;
+  localEdits: Record<string, string>;
+  onEdit:     (mode: string, value: string) => void;
+}) {
+  const [editingMode, setEditingMode] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+
+  const startEdit = (mode: string) => {
+    const cur = localEdits[mode] ?? token.modes[mode] ?? '';
+    setDraft(cur);
+    setEditingMode(mode);
+  };
+
+  const commit = (mode: string) => {
+    onEdit(mode, draft);
+    setEditingMode(null);
+  };
+
+  const hasEdit = Object.keys(localEdits).length > 0;
+
+  return (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: `1fr ${modes.map(() => '100px').join(' ')} 28px`,
+      alignItems: 'center',
+      borderBottom: `1px solid ${SB.border}`,
+      background: hasEdit ? `${SB.accent}08` : 'transparent',
+    }}>
+      {/* Token name */}
+      <div style={{ padding: '4px 10px', fontSize: 10, fontFamily: SB.mono, color: SB.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }} title={token.name}>
+        {hasEdit && <span style={{ width: 4, height: 4, borderRadius: '50%', background: SB.accent, flexShrink: 0, display: 'inline-block' }} />}
+        {token.name.replace(/^--/, '')}
+      </div>
+
+      {/* Mode cells */}
+      {modes.map(mode => {
+        const rawVal = localEdits[mode] ?? token.modes[mode] ?? '';
+        const isEditing = editingMode === mode;
+        const isEmpty = !rawVal;
+        const isColor = token.type === 'color';
+
+        return (
+          <div key={mode} onClick={() => !isEditing && startEdit(mode)}
+            style={{ padding: '3px 6px', cursor: 'text', display: 'flex', alignItems: 'center', gap: 4, borderLeft: `1px solid ${SB.border}` }}>
+            {isColor && rawVal && (
+              <span style={{ width: 12, height: 12, borderRadius: 2, background: rawVal, border: `1px solid ${SB.border}`, flexShrink: 0, display: 'inline-block' }} />
+            )}
+            {isEditing ? (
+              <input
+                autoFocus
+                value={draft}
+                onChange={e => setDraft(e.target.value)}
+                onBlur={() => commit(mode)}
+                onKeyDown={e => { if (e.key === 'Enter') commit(mode); if (e.key === 'Escape') setEditingMode(null); }}
+                style={{ flex: 1, background: SB.bgHover, border: `1px solid ${SB.accent}`, borderRadius: SB.radiusSm, color: SB.text, fontSize: 10, padding: '1px 4px', outline: 'none', fontFamily: SB.mono, minWidth: 0 }}
+              />
+            ) : (
+              <span style={{ fontSize: 10, fontFamily: SB.mono, color: isEmpty ? SB.textMuted : SB.text, fontStyle: isEmpty ? 'italic' : 'normal', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {isEmpty ? '—' : rawVal}
+              </span>
+            )}
+          </div>
+        );
+      })}
+
+      {/* Row actions placeholder */}
+      <div />
+    </div>
+  );
+}
+
 // ─── TextStylePicker ───────────────────────────────────────────────────────
 // Reads text style presets from design-system CSS custom properties.
 // Looks for --text-* or --font-* variables and shows them as selectable rows.
@@ -920,11 +1442,12 @@ const INTERACTION_STATES = [
 // (they duplicate the interaction toggles above)
 const INTERACTION_KEYS = new Set(['hover', 'focus', 'active', 'disabled', 'focusVisible', 'focus-visible', 'dark', 'state']);
 
-function ComponentVariants({ storyId, selectedPath, channel, onApplyVariant }: {
+function ComponentVariants({ storyId, selectedPath, channel, onApplyVariant, onVariantsFetched }: {
   storyId: string;
   selectedPath: number[];
   channel: ReturnType<typeof addons.getChannel>;
   onApplyVariant: (varName: string, val: string) => void;
+  onVariantsFetched?: (v: Record<string, string[]>) => void;
 }) {
   const [variants,    setVariants]    = useState<Record<string, string[]>>({});
   const [activeMode,  setActiveMode]  = useState<Record<string, string>>({});
@@ -934,7 +1457,9 @@ function ComponentVariants({ storyId, selectedPath, channel, onApplyVariant }: {
     if (!storyId) return;
     fetch(`${API_BASE}/api/component-variants?storyId=${encodeURIComponent(storyId)}`)
       .then(r => r.json())
-      .then((d: { variants?: Record<string, string[]> }) => { if (d.variants) setVariants(d.variants); })
+      .then((d: { variants?: Record<string, string[]> }) => {
+        if (d.variants) { setVariants(d.variants); onVariantsFetched?.(d.variants); }
+      })
       .catch(() => {});
   }, [storyId]);
 
@@ -1493,6 +2018,7 @@ export function DesignPanel({ active }: { active: boolean }) {
   }, [channel, previewMode, canvasBg, applyCanvasTheme]);
 
   // ── Custom global variants ────────────────────────────────────────────────────
+  const [fetchedVariants, setFetchedVariants] = useState<Record<string, string[]>>({});
   const [customVariants, setCustomVariants] = useState<Array<{ name: string; values: string[] }>>([]);
   const [cvOpen, setCvOpen] = useState(false);
   const [cvName, setCvName] = useState('');
@@ -2183,6 +2709,18 @@ export function DesignPanel({ active }: { active: boolean }) {
           )}
         </Section>
 
+        {/* BASE + VARIANT */}
+        {storyId && (
+          <Section label="Base / Variant" noPad forceOpen={globalOpenState}>
+            <BaseVariantPanel
+              storyId={storyId}
+              styles={styles}
+              variants={fetchedVariants}
+              onApplyVariant={applyVariant}
+            />
+          </Section>
+        )}
+
         {/* CLASSES */}
         {styles && (
           <Section label="Class" noPad forceOpen={globalOpenState}>
@@ -2249,7 +2787,7 @@ export function DesignPanel({ active }: { active: boolean }) {
         {/* COMPONENT VARIANTS */}
         {storyId && (
           <Section label="Variants" defaultOpen={true} forceOpen={globalOpenState}>
-            <ComponentVariants storyId={storyId} selectedPath={selectedPath} channel={channel} onApplyVariant={applyVariant} />
+            <ComponentVariants storyId={storyId} selectedPath={selectedPath} channel={channel} onApplyVariant={applyVariant} onVariantsFetched={setFetchedVariants} />
           </Section>
         )}
 
@@ -2368,8 +2906,26 @@ export function DesignPanel({ active }: { active: boolean }) {
           )}
         </Section>
 
-        {/* TOKEN OVERRIDES */}
-        <Section label="CSS Variables" defaultOpen={false}>
+        {/* CONTENT / PROPS */}
+        {storyId && (
+          <Section label="Content" noPad defaultOpen={false} forceOpen={globalOpenState}>
+            <ContentBindingPanel
+              storyId={storyId}
+              tokens={tokens}
+              onSave={(prop, value) => setPendingText({ path: selectedPath, prop, value })}
+            />
+          </Section>
+        )}
+
+        {/* TOKENS TABLE */}
+        <Section label="Tokens" noPad defaultOpen={false} forceOpen={globalOpenState}>
+          <div style={{ height: 420 }}>
+            <TokensTable apiBase={API_BASE} onMarkChanged={() => setSavedCount(c => c + 0)} />
+          </div>
+        </Section>
+
+        {/* CSS VARIABLE OVERRIDES (quick live overrides) */}
+        <Section label="CSS Variable Overrides" defaultOpen={false}>
           {overrides.map(o => {
             const entry = tokens.find(t => t.name === o.prop);
             const filter = entry?.type === 'color' ? 'color' : entry?.type === 'size' ? 'size' : 'all';

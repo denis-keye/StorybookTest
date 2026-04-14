@@ -107,9 +107,11 @@
     background: var(--sb-bg2) !important;
     border-bottom: 1px solid var(--sb-border) !important;
     border-top: none !important;
-    padding: 0 8px !important;
+    padding: 0 !important;
     gap: 0 !important;
     height: 32px !important;
+    display: flex !important;
+    width: 100% !important;
   }
 
   [role="tab"] {
@@ -126,10 +128,13 @@
     height: 32px !important;
     display: inline-flex !important;
     align-items: center !important;
+    justify-content: center !important;
     gap: 6px !important;
     transition: color 0.1s !important;
     background: transparent !important;
     position: relative !important;
+    flex: 1 !important;
+    white-space: nowrap !important;
   }
   [role="tab"]:hover {
     color: var(--sb-text) !important;
@@ -193,6 +198,22 @@
     background: var(--sb-bg3) !important;
   }
 
+  /* ── Suppress source/docs code flash on initial load ─────────────────── */
+  /* The source addon briefly shows a code block before the panel switches */
+  [id*="source"] pre,
+  [id*="source"] code,
+  [class*="source"] pre,
+  [class*="source"] code,
+  [class*="Source"] pre,
+  [class*="Source"] code {
+    visibility: hidden;
+  }
+  /* Once the panel is active (aria-selected on its tab), reveal it */
+  [aria-selected="true"][id*="source"] ~ * pre,
+  [aria-selected="true"][id*="source"] ~ * code {
+    visibility: visible;
+  }
+
   /* ── Canvas frame ─────────────────────────────────────────────────────── */
   #storybook-preview-wrapper {
     background: var(--sb-bg0) !important;
@@ -213,4 +234,104 @@
       .forEach(k => localStorage.removeItem(k));
     localStorage.removeItem('@storybook/manager/store');
   } catch(e) {}
+
+  /* ── Panel DOM patches (icons, count badge, tab width, instructions) ── */
+  (function() {
+    var HINT_ATTR = 'data-sb-hint-injected';
+    var styleEl = null;
+
+    var INSTRUCTIONS = {
+      controls: 'Controls let you change the props passed into a story without editing code. Tweak values here to see the canvas update live — these changes are temporary and not saved to source.',
+      actions:  'Actions captures event callbacks (e.g. onClick, onChange) fired by the component. Click or interact with the story in the canvas above and each event will be logged here.'
+    };
+
+    function injectDynamicCSS(rules) {
+      if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = 'sb-patch-styles';
+        document.head.appendChild(styleEl);
+      }
+      styleEl.textContent = rules;
+    }
+
+    function patch() {
+      /* ── 1. Find the tablist and hide icon-button siblings ── */
+      var tablist = document.querySelector('[role="tablist"]');
+      if (tablist) {
+        var parent = tablist.parentElement;
+        if (parent) {
+          /* Hide every direct child of the tablist's parent that is NOT the tablist
+             — these are the icon button groups on the right */
+          Array.prototype.forEach.call(parent.children, function(child) {
+            if (child !== tablist) {
+              child.setAttribute('data-sb-icons', '1');
+              child.style.setProperty('display', 'none', 'important');
+            }
+          });
+          /* Make the parent and tablist fill the full row */
+          parent.style.setProperty('display', 'flex', 'important');
+          parent.style.setProperty('width', '100%', 'important');
+          parent.style.setProperty('overflow', 'hidden', 'important');
+          tablist.style.setProperty('flex', '1', 'important');
+          tablist.style.setProperty('display', 'flex', 'important');
+          tablist.style.setProperty('width', '100%', 'important');
+          tablist.style.setProperty('overflow', 'hidden', 'important');
+        }
+
+        /* ── 2. Make each tab fill equal width + hide count spans ── */
+        tablist.querySelectorAll('[role="tab"]').forEach(function(tab) {
+          tab.style.setProperty('flex', '1', 'important');
+          tab.style.setProperty('justify-content', 'center', 'important');
+          tab.style.setProperty('min-width', '0', 'important');
+          /* Hide any span whose trimmed text is purely numeric (the count badge) */
+          tab.querySelectorAll('span').forEach(function(sp) {
+            if (/^\d+$/.test((sp.textContent || '').trim())) {
+              sp.style.setProperty('display', 'none', 'important');
+            }
+          });
+        });
+      }
+
+      /* ── 3. Inject instruction banners into Controls / Actions panels ── */
+      document.querySelectorAll('[id]').forEach(function(el) {
+        var id = el.id.toLowerCase();
+        var key = id.includes('control') ? 'controls' : id.includes('action') ? 'actions' : null;
+        if (!key) return;
+        if (el.getAttribute(HINT_ATTR)) return;
+        if (el.getAttribute('role') === 'tab' || el.getAttribute('role') === 'tablist') return;
+        /* Must be a sizeable container, not a small wrapper */
+        if (el.children.length === 0) return;
+        el.setAttribute(HINT_ATTR, '1');
+        var banner = document.createElement('div');
+        banner.setAttribute('data-sb-banner', key);
+        banner.style.cssText = [
+          'padding:8px 16px',
+          'font-size:11px',
+          'color:rgba(232,232,237,0.45)',
+          'font-family:"Inter",-apple-system,sans-serif',
+          'line-height:1.55',
+          'border-bottom:1px solid rgba(255,255,255,0.07)',
+          'background:transparent',
+          'flex-shrink:0',
+        ].join(';');
+        banner.textContent = INSTRUCTIONS[key];
+        el.insertBefore(banner, el.firstChild);
+      });
+    }
+
+    /* Debounce to avoid thrashing on React re-renders */
+    var timer = null;
+    function debouncedPatch() {
+      clearTimeout(timer);
+      timer = setTimeout(patch, 50);
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', patch);
+    } else {
+      patch();
+    }
+    var observer = new MutationObserver(debouncedPatch);
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+  })();
 </script>

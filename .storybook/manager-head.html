@@ -235,55 +235,97 @@
     localStorage.removeItem('@storybook/manager/store');
   } catch(e) {}
 
-  /* ── Panel DOM patches (icons, count badge, tab width, instructions) ── */
+  /* ── Panel DOM patches ── */
   (function() {
-    var HINT_ATTR = 'data-sb-hint-injected';
-    var styleEl = null;
+    var HINT_ATTR  = 'data-sb-hint-injected';
+    var BTN_ID     = 'sb-panel-toggle-btn';
+    var panelOpen  = true;
 
     var INSTRUCTIONS = {
       controls: 'Controls let you change the props passed into a story without editing code. Tweak values here to see the canvas update live — these changes are temporary and not saved to source.',
       actions:  'Actions captures event callbacks (e.g. onClick, onChange) fired by the component. Click or interact with the story in the canvas above and each event will be logged here.'
     };
 
-    function injectDynamicCSS(rules) {
-      if (!styleEl) {
-        styleEl = document.createElement('style');
-        styleEl.id = 'sb-patch-styles';
-        document.head.appendChild(styleEl);
-      }
-      styleEl.textContent = rules;
+    /* Chevron SVG — points left (‹) when panel is open (to close), right (›) when closed */
+    function chevronSVG(open) {
+      /* open=true  → chevron points right  → clicking will close the panel  */
+      /* open=false → chevron points left   → clicking will open  the panel  */
+      var deg = open ? 0 : 180;
+      return '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"'
+        + ' style="transform:rotate(' + deg + 'deg);transition:transform 0.2s ease">'
+        + '<path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'
+        + '</svg>';
+    }
+
+    /* Inject the single toggle button into the main toolbar (top bar) */
+    function injectToggleBtn() {
+      if (document.getElementById(BTN_ID)) return;
+      var toolbar = document.querySelector('[role="toolbar"]');
+      if (!toolbar) return;
+
+      var btn = document.createElement('button');
+      btn.id = BTN_ID;
+      btn.title = 'Toggle panel';
+      btn.innerHTML = chevronSVG(panelOpen);
+      btn.style.cssText = [
+        'display:flex',
+        'align-items:center',
+        'justify-content:center',
+        'width:28px',
+        'height:28px',
+        'border-radius:4px',
+        'border:none',
+        'background:transparent',
+        'color:rgba(232,232,237,0.55)',
+        'cursor:pointer',
+        'margin-left:auto',
+        'flex-shrink:0',
+        'transition:background 0.1s,color 0.1s',
+      ].join(';');
+
+      btn.addEventListener('mouseenter', function() {
+        btn.style.background = '#2e2e34';
+        btn.style.color = '#e8e8ed';
+      });
+      btn.addEventListener('mouseleave', function() {
+        btn.style.background = 'transparent';
+        btn.style.color = 'rgba(232,232,237,0.55)';
+      });
+      btn.addEventListener('click', function() {
+        /* Trigger Storybook's built-in keyboard shortcut: D = toggle panel */
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', bubbles: true }));
+        panelOpen = !panelOpen;
+        btn.innerHTML = chevronSVG(panelOpen);
+      });
+
+      toolbar.appendChild(btn);
     }
 
     function patch() {
-      /* ── 1. Find the tablist and hide icon-button siblings ── */
+      /* ── 1. Hide the original two panel icon buttons ── */
+      /* They live as siblings of the tablist inside the panel header */
       var tablist = document.querySelector('[role="tablist"]');
       if (tablist) {
         var parent = tablist.parentElement;
         if (parent) {
-          /* Hide every direct child of the tablist's parent that is NOT the tablist
-             — these are the icon button groups on the right */
           Array.prototype.forEach.call(parent.children, function(child) {
             if (child !== tablist) {
-              child.setAttribute('data-sb-icons', '1');
               child.style.setProperty('display', 'none', 'important');
             }
           });
-          /* Make the parent and tablist fill the full row */
           parent.style.setProperty('display', 'flex', 'important');
           parent.style.setProperty('width', '100%', 'important');
-          parent.style.setProperty('overflow', 'hidden', 'important');
           tablist.style.setProperty('flex', '1', 'important');
           tablist.style.setProperty('display', 'flex', 'important');
           tablist.style.setProperty('width', '100%', 'important');
           tablist.style.setProperty('overflow', 'hidden', 'important');
         }
 
-        /* ── 2. Make each tab fill equal width + hide count spans ── */
+        /* ── 2. Full-width tabs + hide numeric count badges ── */
         tablist.querySelectorAll('[role="tab"]').forEach(function(tab) {
           tab.style.setProperty('flex', '1', 'important');
           tab.style.setProperty('justify-content', 'center', 'important');
           tab.style.setProperty('min-width', '0', 'important');
-          /* Hide any span whose trimmed text is purely numeric (the count badge) */
           tab.querySelectorAll('span').forEach(function(sp) {
             if (/^\d+$/.test((sp.textContent || '').trim())) {
               sp.style.setProperty('display', 'none', 'important');
@@ -292,14 +334,16 @@
         });
       }
 
-      /* ── 3. Inject instruction banners into Controls / Actions panels ── */
+      /* ── 3. Inject single chevron toggle into toolbar ── */
+      injectToggleBtn();
+
+      /* ── 4. Instruction banners for Controls / Actions panels ── */
       document.querySelectorAll('[id]').forEach(function(el) {
-        var id = el.id.toLowerCase();
+        var id  = el.id.toLowerCase();
         var key = id.includes('control') ? 'controls' : id.includes('action') ? 'actions' : null;
         if (!key) return;
         if (el.getAttribute(HINT_ATTR)) return;
         if (el.getAttribute('role') === 'tab' || el.getAttribute('role') === 'tablist') return;
-        /* Must be a sizeable container, not a small wrapper */
         if (el.children.length === 0) return;
         el.setAttribute(HINT_ATTR, '1');
         var banner = document.createElement('div');
@@ -319,7 +363,6 @@
       });
     }
 
-    /* Debounce to avoid thrashing on React re-renders */
     var timer = null;
     function debouncedPatch() {
       clearTimeout(timer);

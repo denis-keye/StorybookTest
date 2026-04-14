@@ -680,6 +680,139 @@ export function contextPlugin(): Plugin {
           return;
         }
 
+        // ── /api/component-variants  GET ?storyId=… ──────────────────────
+        // Parses the component file referenced by the story and returns the
+        // cva() variant keys so the panel can render interactive pill selectors.
+
+        if (url.pathname === '/api/component-variants' && req.method === 'GET') {
+          const storyId = url.searchParams.get('storyId');
+          if (!storyId) {
+            res.statusCode = 400;
+            return res.end(JSON.stringify({ error: 'storyId required' }));
+          }
+          try {
+            const storyFile = await findStoryFile(storyId);
+            if (!storyFile) {
+              res.statusCode = 200;
+              return res.end(JSON.stringify({ variants: {} }));
+            }
+            const storySrc = await fs.readFile(storyFile, 'utf-8');
+
+            // Find component imports — e.g. import { Button } from '../components/ui/button'
+            const importMatch = storySrc.match(/import\s+{[^}]+}\s+from\s+['"]([^'"]+)['"]/g) ?? [];
+            const variants: Record<string, string[]> = {};
+
+            for (const imp of importMatch) {
+              const relMatch = imp.match(/from\s+['"]([^'"]+)['"]/);
+              if (!relMatch) continue;
+              const rel = relMatch[1];
+              if (!rel.startsWith('.') && !rel.startsWith('/')) continue;
+
+              const storyDir    = path.dirname(storyFile);
+              let compPath      = path.resolve(storyDir, rel);
+              // Try common extensions
+              for (const ext of ['.tsx', '.ts', '.jsx', '.js', '']) {
+                try {
+                  const tryPath = compPath + ext;
+                  const compSrc = await fs.readFile(tryPath, 'utf-8');
+                  // Find cva( calls and extract their variants: { ... } blocks
+                  // Pattern: cva( "base", { variants: { key: { val1: ..., val2: ... } } })
+                  const cvaMatch = compSrc.match(/cva\s*\([^,]+,\s*\{/);
+                  if (!cvaMatch) break;
+
+                  // Extract the variants block by brace-counting
+                  const variantsKeyword = compSrc.indexOf('variants:', compSrc.indexOf(cvaMatch[0]));
+                  if (variantsKeyword === -1) break;
+
+                  const braceStart = compSrc.indexOf('{', variantsKeyword + 9);
+                  if (braceStart === -1) break;
+
+                  let depth = 0, braceEnd = -1;
+                  for (let i = braceStart; i < compSrc.length; i++) {
+                    if (compSrc[i] === '{') depth++;
+                    else if (compSrc[i] === '}') { depth--; if (depth === 0) { braceEnd = i; break; } }
+                  }
+                  if (braceEnd === -1) break;
+
+                  const variantsBlock = compSrc.slice(braceStart + 1, braceEnd);
+                  // Extract top-level keys (variant names) and their sub-keys (variant values)
+                  const keyRe = /(\w+)\s*:\s*\{([^}]+)\}/g;
+                  let km: RegExpExecArray | null;
+                  while ((km = keyRe.exec(variantsBlock)) !== null) {
+                    const varName   = km[1];
+                    const valBlock  = km[2];
+                    const valKeys   = [...valBlock.matchAll(/["']?(\w[\w-]*)["']?\s*:/g)].map(m => m[1]);
+                    if (valKeys.length > 0) variants[varName] = valKeys;
+                  }
+                  break;
+                } catch { continue; }
+              }
+            }
+
+            res.statusCode = 200;
+            return res.end(JSON.stringify({ variants }));
+          } catch (e) {
+            res.statusCode = 500;
+            return res.end(JSON.stringify({ error: String(e) }));
+          }
+        }
+
+        // ── /api/combo-classes  GET ?storyId=… / POST { storyId, name, classes } ──
+        // Stores named class groups alongside the story meta file so they persist.
+
+        if (url.pathname === '/api/combo-classes') {
+          if (req.method === 'GET') {
+            const storyId = url.searchParams.get('storyId');
+            if (!storyId) {
+              res.statusCode = 400;
+              return res.end(JSON.stringify({ error: 'storyId required' }));
+            }
+            const storyFile = await findStoryFile(storyId);
+            if (!storyFile) {
+              res.statusCode = 200;
+              return res.end(JSON.stringify({ combos: {} }));
+            }
+            const metaFile = storyFile.replace(/\.stories\.(tsx?|jsx?)$/, '.stories.meta.json');
+            try {
+              const raw  = JSON.parse(await fs.readFile(metaFile, 'utf-8')) as Record<string, unknown>;
+              res.statusCode = 200;
+              return res.end(JSON.stringify({ combos: raw.combos ?? {} }));
+            } catch {
+              res.statusCode = 200;
+              return res.end(JSON.stringify({ combos: {} }));
+            }
+          }
+
+          if (req.method === 'POST') {
+            const chunks: Buffer[] = [];
+            req.on('data', (c: Buffer) => chunks.push(c));
+            req.on('end', async () => {
+              try {
+                const body = JSON.parse(Buffer.concat(chunks).toString()) as {
+                  storyId: string;
+                  combos: Record<string, string>;
+                };
+                const storyFile = await findStoryFile(body.storyId);
+                if (!storyFile) {
+                  res.statusCode = 404;
+                  return res.end(JSON.stringify({ error: 'Story file not found' }));
+                }
+                const metaFile = storyFile.replace(/\.stories\.(tsx?|jsx?)$/, '.stories.meta.json');
+                let existing: Record<string, unknown> = {};
+                try { existing = JSON.parse(await fs.readFile(metaFile, 'utf-8')); } catch {}
+                const merged = { ...existing, combos: body.combos };
+                await fs.writeFile(metaFile, JSON.stringify(merged, null, 2) + '\n');
+                res.statusCode = 200;
+                res.end(JSON.stringify({ ok: true, file: path.relative(process.cwd(), metaFile) }));
+              } catch (e) {
+                res.statusCode = 500;
+                res.end(JSON.stringify({ error: String(e) }));
+              }
+            });
+            return;
+          }
+        }
+
         next();
       });
     },

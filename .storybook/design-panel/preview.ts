@@ -183,17 +183,55 @@ function readStyles(el: Element): Record<string, string> | null {
     borderWidth:     c.borderWidth,
     borderStyle:     c.borderStyle,
     borderRadius:    c.borderRadius,
+    borderTopLeftRadius:     c.borderTopLeftRadius,
+    borderTopRightRadius:    c.borderTopRightRadius,
+    borderBottomRightRadius: c.borderBottomRightRadius,
+    borderBottomLeftRadius:  c.borderBottomLeftRadius,
     gap:             c.gap,
     paddingTop:      c.paddingTop,
     paddingRight:    c.paddingRight,
     paddingBottom:   c.paddingBottom,
     paddingLeft:     c.paddingLeft,
+    marginTop:       c.marginTop,
+    marginRight:     c.marginRight,
+    marginBottom:    c.marginBottom,
+    marginLeft:      c.marginLeft,
     opacity:         c.opacity,
     fontSize:        c.fontSize,
     fontWeight:      c.fontWeight,
+    fontFamily:      c.fontFamily,
+    lineHeight:      c.lineHeight,
+    letterSpacing:   c.letterSpacing,
+    textAlign:       c.textAlign,
+    textDecoration:  c.textDecorationLine,
+    textTransform:   c.textTransform,
     width:           Math.round(rect.width)  + 'px',
     height:          Math.round(rect.height) + 'px',
+    minWidth:        c.minWidth,
+    maxWidth:        c.maxWidth,
+    minHeight:       c.minHeight,
+    maxHeight:       c.maxHeight,
+    display:         c.display,
+    flexDirection:   c.flexDirection,
+    justifyContent:  c.justifyContent,
+    alignItems:      c.alignItems,
+    flexWrap:        c.flexWrap,
+    position:        c.position,
+    top:             c.top,
+    right:           c.right,
+    bottom:          c.bottom,
+    left:            c.left,
+    zIndex:          c.zIndex,
+    overflow:        c.overflow,
+    overflowX:       c.overflowX,
+    overflowY:       c.overflowY,
     boxShadow:       c.boxShadow,
+    filter:          c.filter,
+    backdropFilter:  c.backdropFilter,
+    transition:      c.transition,
+    transform:       c.transform,
+    cursor:          c.cursor,
+    classList:       el.className,
     leafText:        isLeaf ? (el.textContent?.trim() ?? '') : '',
   };
 }
@@ -306,6 +344,46 @@ channel.on('DESIGN/RESOLVE_TOKENS', (names: string[]) => {
 
   document.body.removeChild(probe);
   channel.emit('DESIGN/RESOLVED_TOKENS', resolved);
+});
+
+// Update a Storybook story arg (e.g. variant prop) so CVA re-renders the component
+channel.on('DESIGN/SET_STORY_ARG', ({ prop, value }: { prop: string; value: string }) => {
+  // Storybook's preview API exposes updateStoryArgs via the STORY_ARGS_UPDATED channel.
+  // The simplest cross-iframe approach: emit UPDATE_STORY_ARGS on the same channel.
+  channel.emit('updateGlobals', {});  // noop to ensure channel is alive
+  // Use the manager-facing UPDATE_STORY_ARGS event
+  channel.emit('updateArgs', { updatedArgs: { [prop]: value } });
+});
+
+// Add a class to a specific element by path
+channel.on('DESIGN/ADD_CLASS', ({ path, cls }: { path: number[]; cls: string }) => {
+  const el = path.length === 0 ? getStoryRoot() : getElementByPath(path);
+  if (el instanceof HTMLElement) {
+    cls.trim().split(/\s+/).forEach(c => c && el.classList.add(c));
+    channel.emit('DESIGN/STYLES', readStyles(el));
+  }
+});
+
+// Remove a class from a specific element by path
+channel.on('DESIGN/REMOVE_CLASS', ({ path, cls }: { path: number[]; cls: string }) => {
+  const el = path.length === 0 ? getStoryRoot() : getElementByPath(path);
+  if (el instanceof HTMLElement) {
+    cls.trim().split(/\s+/).forEach(c => c && el.classList.remove(c));
+    channel.emit('DESIGN/STYLES', readStyles(el));
+  }
+});
+
+// Set an inline style property directly on an element by path
+channel.on('DESIGN/SET_INLINE_STYLE', ({ path, prop, value }: { path: number[]; prop: string; value: string }) => {
+  const el = path.length === 0 ? getStoryRoot() : getElementByPath(path);
+  if (el instanceof HTMLElement) {
+    if (value) {
+      el.style.setProperty(prop, value);
+    } else {
+      el.style.removeProperty(prop);
+    }
+    channel.emit('DESIGN/STYLES', readStyles(el));
+  }
 });
 
 export const decorators: Decorator[] = [];

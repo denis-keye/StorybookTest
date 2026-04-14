@@ -31,17 +31,55 @@ interface ElementStyles {
   borderWidth:     string;
   borderStyle:     string;
   borderRadius:    string;
+  borderTopLeftRadius:     string;
+  borderTopRightRadius:    string;
+  borderBottomRightRadius: string;
+  borderBottomLeftRadius:  string;
   gap:             string;
   paddingTop:      string;
   paddingRight:    string;
   paddingBottom:   string;
   paddingLeft:     string;
+  marginTop:       string;
+  marginRight:     string;
+  marginBottom:    string;
+  marginLeft:      string;
   opacity:         string;
   fontSize:        string;
   fontWeight:      string;
+  fontFamily:      string;
+  lineHeight:      string;
+  letterSpacing:   string;
+  textAlign:       string;
+  textDecoration:  string;
+  textTransform:   string;
   width:           string;
   height:          string;
+  minWidth:        string;
+  maxWidth:        string;
+  minHeight:       string;
+  maxHeight:       string;
+  display:         string;
+  flexDirection:   string;
+  justifyContent:  string;
+  alignItems:      string;
+  flexWrap:        string;
+  position:        string;
+  top:             string;
+  right:           string;
+  bottom:          string;
+  left:            string;
+  zIndex:          string;
+  overflow:        string;
+  overflowX:       string;
+  overflowY:       string;
   boxShadow:       string;
+  filter:          string;
+  backdropFilter:  string;
+  transition:      string;
+  transform:       string;
+  cursor:          string;
+  classList:       string;
   leafText:        string;
 }
 
@@ -361,6 +399,664 @@ function Row({ label, children }: { label?: string; children: React.ReactNode })
   );
 }
 
+// ─── NumberInput ──────────────────────────────────────────────────────────────
+
+function parsePx(v: string): number {
+  const n = parseFloat(v);
+  return isNaN(n) ? 0 : Math.round(n);
+}
+
+function NumberInput({ value, onChange, min, max, step = 1, suffix = '', placeholder = '—', style: extraStyle }: {
+  value: string; onChange: (v: string) => void;
+  min?: number; max?: number; step?: number;
+  suffix?: string; placeholder?: string;
+  style?: React.CSSProperties;
+}) {
+  const [local, setLocal] = useState('');
+  const [active, setActive] = useState(false);
+  const display = active ? local : (parsePx(value) === 0 && !value ? '' : parsePx(value).toString());
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', background: '#0d1117', border: '1px solid #30363d', borderRadius: 4, overflow: 'hidden', flex: 1, ...extraStyle }}
+      onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = '#58a6ff'}
+      onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.borderColor = '#30363d'; }}>
+      <input
+        value={active ? local : display}
+        placeholder={placeholder}
+        onFocus={e => { setLocal(display); setActive(true); (e.target.parentElement as HTMLElement).style.borderColor = '#58a6ff'; }}
+        onBlur={e => {
+          setActive(false);
+          (e.target.parentElement as HTMLElement).style.borderColor = '#30363d';
+          const n = parseFloat(local);
+          if (!isNaN(n)) onChange(n + (suffix || 'px'));
+        }}
+        onChange={e => setLocal(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); }
+          if (e.key === 'ArrowUp')   { e.preventDefault(); const n = parsePx(value) + step; if (max === undefined || n <= max) onChange(n + (suffix || 'px')); }
+          if (e.key === 'ArrowDown') { e.preventDefault(); const n = parsePx(value) - step; if (min === undefined || n >= min) onChange(n + (suffix || 'px')); }
+        }}
+        style={{ flex: 1, background: 'transparent', border: 'none', color: '#c9d1d9', fontSize: 11, padding: '3px 6px', outline: 'none', fontFamily: 'monospace', minWidth: 0, width: '100%' }}
+      />
+      {suffix && <span style={{ color: '#6e7681', fontSize: 10, paddingRight: 5, flexShrink: 0 }}>{suffix}</span>}
+    </div>
+  );
+}
+
+// ─── SelectInput ──────────────────────────────────────────────────────────────
+
+function SelectInput({ value, options, onChange, style: extraStyle }: {
+  value: string; options: { label: string; value: string }[];
+  onChange: (v: string) => void; style?: React.CSSProperties;
+}) {
+  return (
+    <select value={value} onChange={e => onChange(e.target.value)}
+      style={{ background: '#0d1117', border: '1px solid #30363d', borderRadius: 4, color: '#c9d1d9', fontSize: 11, padding: '3px 6px', outline: 'none', cursor: 'pointer', flex: 1, fontFamily: 'inherit', ...extraStyle }}>
+      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  );
+}
+
+// ─── SegmentedControl ─────────────────────────────────────────────────────────
+
+function SegmentedControl({ options, value, onChange, title }: {
+  options: { label: string; value: string; title?: string }[];
+  value: string; onChange: (v: string) => void; title?: string;
+}) {
+  return (
+    <div title={title} style={{ display: 'flex', background: '#0d1117', border: '1px solid #30363d', borderRadius: 4, overflow: 'hidden', flexShrink: 0 }}>
+      {options.map(o => (
+        <button key={o.value} title={o.title ?? o.label} onClick={() => onChange(o.value)}
+          style={{
+            padding: '3px 7px', border: 'none', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit',
+            background: value === o.value ? '#1f6feb' : 'transparent',
+            color: value === o.value ? '#fff' : '#8b949e',
+            borderRight: '1px solid #30363d',
+          }}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ─── IconButton ───────────────────────────────────────────────────────────────
+
+function IconBtn({ children, active, onClick, title }: {
+  children: React.ReactNode; active?: boolean; onClick: () => void; title?: string;
+}) {
+  return (
+    <button title={title} onClick={onClick}
+      style={{
+        padding: '3px 6px', border: '1px solid ' + (active ? '#1f6feb' : '#30363d'),
+        borderRadius: 4, cursor: 'pointer', fontSize: 11, fontFamily: 'inherit',
+        background: active ? '#1f3a5f' : 'transparent',
+        color: active ? '#58a6ff' : '#8b949e',
+        flexShrink: 0,
+      }}>
+      {children}
+    </button>
+  );
+}
+
+// ─── SpacingBox ───────────────────────────────────────────────────────────────
+
+function SpacingBox({ styles, onChangeInline }: {
+  styles: ElementStyles | null;
+  onChangeInline: (prop: string, value: string) => void;
+}) {
+  if (!styles) return null;
+
+  const pad = {
+    top:    parsePx(styles.paddingTop),
+    right:  parsePx(styles.paddingRight),
+    bottom: parsePx(styles.paddingBottom),
+    left:   parsePx(styles.paddingLeft),
+  };
+
+  const sideInput = (prop: string, val: number, style?: React.CSSProperties) => (
+    <input
+      defaultValue={val}
+      key={val}
+      onBlur={e => onChangeInline(prop, (e.target as HTMLInputElement).value + 'px')}
+      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+      style={{
+        width: 28, textAlign: 'center', background: '#0d1117', border: '1px solid #30363d',
+        borderRadius: 3, color: '#c9d1d9', fontSize: 10, padding: '2px 0', outline: 'none',
+        fontFamily: 'monospace', ...style,
+      }}
+      onFocus={e => (e.target as HTMLInputElement).select()}
+    />
+  );
+
+  return (
+    <div style={{ padding: '4px 0' }}>
+      <div style={{ fontSize: 9, color: '#6e7681', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>Padding</div>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+        {/* Top */}
+        <div style={{ display: 'flex', justifyContent: 'center' }}>
+          {sideInput('padding-top', pad.top)}
+        </div>
+        {/* Middle row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          {sideInput('padding-left', pad.left)}
+          <div style={{
+            width: 70, height: 32, border: '1px dashed #30363d', borderRadius: 3,
+            background: '#161b22', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <span style={{ fontSize: 9, color: '#6e7681' }}>element</span>
+          </div>
+          {sideInput('padding-right', pad.right)}
+        </div>
+        {/* Bottom */}
+        <div style={{ display: 'flex', justifyContent: 'center' }}>
+          {sideInput('padding-bottom', pad.bottom)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── LayoutControls ───────────────────────────────────────────────────────────
+
+const FLEX_DIRECTION_OPTS = [
+  { label: '→', value: 'row',         title: 'Row' },
+  { label: '↓', value: 'column',      title: 'Column' },
+  { label: '←', value: 'row-reverse', title: 'Row Reverse' },
+  { label: '↑', value: 'column-reverse', title: 'Column Reverse' },
+];
+const JUSTIFY_OPTS = [
+  { label: '⇤',  value: 'flex-start',    title: 'Flex Start' },
+  { label: '⇥',  value: 'flex-end',      title: 'Flex End' },
+  { label: '⇔',  value: 'center',        title: 'Center' },
+  { label: '↔',  value: 'space-between', title: 'Space Between' },
+  { label: '⟺', value: 'space-around',  title: 'Space Around' },
+  { label: '≡',  value: 'space-evenly',  title: 'Space Evenly' },
+];
+const ALIGN_OPTS = [
+  { label: '⊤', value: 'flex-start', title: 'Start' },
+  { label: '⊞', value: 'center',     title: 'Center' },
+  { label: '⊥', value: 'flex-end',   title: 'End' },
+  { label: '↕', value: 'stretch',    title: 'Stretch' },
+  { label: '—', value: 'baseline',   title: 'Baseline' },
+];
+const WRAP_OPTS = [
+  { label: 'No wrap',  value: 'nowrap' },
+  { label: 'Wrap',     value: 'wrap' },
+  { label: 'Wrap rev', value: 'wrap-reverse' },
+];
+
+function LayoutControls({ styles, onChangeInline }: {
+  styles: ElementStyles | null;
+  onChangeInline: (prop: string, value: string) => void;
+}) {
+  if (!styles) return null;
+
+  const isFlex = styles.display === 'flex' || styles.display === 'inline-flex';
+  const isGrid = styles.display === 'grid' || styles.display === 'inline-grid';
+
+  const displayOpts = [
+    { label: 'block',  value: 'block' },
+    { label: 'flex',   value: 'flex' },
+    { label: 'grid',   value: 'grid' },
+    { label: 'inline', value: 'inline' },
+    { label: 'none',   value: 'none' },
+  ];
+
+  return (
+    <div>
+      <Row label="Display">
+        <SelectInput value={styles.display} options={displayOpts} onChange={v => onChangeInline('display', v)} />
+      </Row>
+
+      {isFlex && (
+        <>
+          <Row label="Direction">
+            <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+              {FLEX_DIRECTION_OPTS.map(o => (
+                <IconBtn key={o.value} active={styles.flexDirection === o.value} onClick={() => onChangeInline('flex-direction', o.value)} title={o.title}>
+                  {o.label}
+                </IconBtn>
+              ))}
+            </div>
+          </Row>
+          <Row label="Justify">
+            <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+              {JUSTIFY_OPTS.map(o => (
+                <IconBtn key={o.value} active={styles.justifyContent === o.value} onClick={() => onChangeInline('justify-content', o.value)} title={o.title}>
+                  {o.label}
+                </IconBtn>
+              ))}
+            </div>
+          </Row>
+          <Row label="Align">
+            <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+              {ALIGN_OPTS.map(o => (
+                <IconBtn key={o.value} active={styles.alignItems === o.value} onClick={() => onChangeInline('align-items', o.value)} title={o.title}>
+                  {o.label}
+                </IconBtn>
+              ))}
+            </div>
+          </Row>
+          <Row label="Wrap">
+            <SelectInput value={styles.flexWrap} options={WRAP_OPTS} onChange={v => onChangeInline('flex-wrap', v)} />
+          </Row>
+          <Row label="Gap">
+            <NumberInput value={styles.gap} onChange={v => onChangeInline('gap', v)} min={0} />
+          </Row>
+        </>
+      )}
+
+      {isGrid && (
+        <Row label="Gap">
+          <NumberInput value={styles.gap} onChange={v => onChangeInline('gap', v)} min={0} />
+        </Row>
+      )}
+    </div>
+  );
+}
+
+// ─── SizeControls ─────────────────────────────────────────────────────────────
+
+function SizeControls({ styles, onChangeInline }: {
+  styles: ElementStyles | null;
+  onChangeInline: (prop: string, value: string) => void;
+}) {
+  if (!styles) return null;
+  return (
+    <div>
+      <Row label="W × H">
+        <NumberInput value={styles.width}  onChange={v => onChangeInline('width', v)}  placeholder="auto" />
+        <span style={{ color: '#6e7681', fontSize: 10 }}>×</span>
+        <NumberInput value={styles.height} onChange={v => onChangeInline('height', v)} placeholder="auto" />
+      </Row>
+      <Row label="Min W/H">
+        <NumberInput value={styles.minWidth}  onChange={v => onChangeInline('min-width', v)}  placeholder="none" />
+        <NumberInput value={styles.minHeight} onChange={v => onChangeInline('min-height', v)} placeholder="none" />
+      </Row>
+      <Row label="Max W/H">
+        <NumberInput value={styles.maxWidth}  onChange={v => onChangeInline('max-width', v)}  placeholder="none" />
+        <NumberInput value={styles.maxHeight} onChange={v => onChangeInline('max-height', v)} placeholder="none" />
+      </Row>
+    </div>
+  );
+}
+
+// ─── TypographyControls ───────────────────────────────────────────────────────
+
+const FONT_WEIGHT_OPTS = [
+  { label: '100', value: '100' }, { label: '200', value: '200' }, { label: '300', value: '300' },
+  { label: '400', value: '400' }, { label: '500', value: '500' }, { label: '600', value: '600' },
+  { label: '700', value: '700' }, { label: '800', value: '800' }, { label: '900', value: '900' },
+];
+const TEXT_ALIGN_OPTS = [
+  { label: '⇤', value: 'left',    title: 'Left' },
+  { label: '⇔', value: 'center',  title: 'Center' },
+  { label: '⇥', value: 'right',   title: 'Right' },
+  { label: '⇹', value: 'justify', title: 'Justify' },
+];
+const TEXT_TRANSFORM_OPTS = [
+  { label: 'Aa', value: 'none',       title: 'None' },
+  { label: 'AA', value: 'uppercase',  title: 'Uppercase' },
+  { label: 'aa', value: 'lowercase',  title: 'Lowercase' },
+  { label: 'Aa', value: 'capitalize', title: 'Capitalize' },
+];
+
+function TypographyControls({ styles, tokens, textVal, textProp, onChangeInline, onChangeToken, onSave }: {
+  styles: ElementStyles | null;
+  tokens: TokenEntry[];
+  textVal: string; textProp: string;
+  onChangeInline: (prop: string, value: string) => void;
+  onChangeToken: (prop: string, value: string) => void;
+  onSave: (prop: string, value: string) => void;
+}) {
+  if (!styles) return null;
+
+  const isBold      = styles.textDecoration?.includes('underline');
+  const isStrike    = styles.textDecoration?.includes('line-through');
+
+  return (
+    <div>
+      <Row label="Color">
+        <TokenField value={textVal} tokens={tokens} filter="color" onChange={v => onChangeToken(textProp, v)} />
+        <button onClick={() => onSave(textProp, textVal)} title="Save to global.css"
+          style={{ ...sIconBtn, color: '#6e7681' }}>↗</button>
+      </Row>
+      <Row label="Size">
+        <NumberInput value={styles.fontSize} onChange={v => onChangeInline('font-size', v)} min={1} />
+        <SelectInput value={styles.fontWeight} options={FONT_WEIGHT_OPTS} onChange={v => onChangeInline('font-weight', v)} />
+      </Row>
+      <Row label="Line H">
+        <NumberInput value={styles.lineHeight === 'normal' ? '' : styles.lineHeight} onChange={v => onChangeInline('line-height', v)} suffix="" placeholder="normal" />
+        <NumberInput value={styles.letterSpacing === 'normal' ? '' : styles.letterSpacing} onChange={v => onChangeInline('letter-spacing', v)} suffix="px" placeholder="0" />
+      </Row>
+      <Row label="Align">
+        <div style={{ display: 'flex', gap: 3 }}>
+          {TEXT_ALIGN_OPTS.map(o => (
+            <IconBtn key={o.value} active={styles.textAlign === o.value} onClick={() => onChangeInline('text-align', o.value)} title={o.title}>
+              {o.label}
+            </IconBtn>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 3, marginLeft: 4 }}>
+          <IconBtn active={isBold} onClick={() => onChangeInline('text-decoration', isBold ? 'none' : 'underline')} title="Underline">U̲</IconBtn>
+          <IconBtn active={isStrike} onClick={() => onChangeInline('text-decoration', isStrike ? 'none' : 'line-through')} title="Strikethrough">S̶</IconBtn>
+        </div>
+      </Row>
+      <Row label="Transform">
+        <div style={{ display: 'flex', gap: 3 }}>
+          {TEXT_TRANSFORM_OPTS.map(o => (
+            <IconBtn key={o.value} active={styles.textTransform === o.value} onClick={() => onChangeInline('text-transform', o.value)} title={o.title}>
+              {o.label}
+            </IconBtn>
+          ))}
+        </div>
+      </Row>
+    </div>
+  );
+}
+
+// ─── BorderControls ───────────────────────────────────────────────────────────
+
+const BORDER_STYLE_OPTS = [
+  { label: 'none',   value: 'none' },
+  { label: 'solid',  value: 'solid' },
+  { label: 'dashed', value: 'dashed' },
+  { label: 'dotted', value: 'dotted' },
+  { label: 'double', value: 'double' },
+];
+
+function BorderControls({ styles, tokens, strokeVal, strokeProp, onChangeInline, onChangeToken, onSave }: {
+  styles: ElementStyles | null;
+  tokens: TokenEntry[];
+  strokeVal: string; strokeProp: string;
+  onChangeInline: (prop: string, value: string) => void;
+  onChangeToken: (prop: string, value: string) => void;
+  onSave: (prop: string, value: string) => void;
+}) {
+  if (!styles) return null;
+  const [splitCorners, setSplitCorners] = useState(false);
+
+  const allSame =
+    styles.borderTopLeftRadius === styles.borderTopRightRadius &&
+    styles.borderTopRightRadius === styles.borderBottomRightRadius &&
+    styles.borderBottomRightRadius === styles.borderBottomLeftRadius;
+
+  return (
+    <div>
+      <Row label="Color">
+        <TokenField value={strokeVal} tokens={tokens} filter="color" onChange={v => onChangeToken(strokeProp, v)} />
+        <button onClick={() => onSave(strokeProp, strokeVal)} title="Save to global.css"
+          style={{ ...sIconBtn, color: '#6e7681' }}>↗</button>
+      </Row>
+      <Row label="Width">
+        <NumberInput value={styles.borderWidth} onChange={v => onChangeInline('border-width', v)} min={0} />
+        <SelectInput value={styles.borderStyle} options={BORDER_STYLE_OPTS} onChange={v => onChangeInline('border-style', v)} />
+      </Row>
+      <Row label="Radius">
+        <NumberInput
+          value={allSame ? styles.borderTopLeftRadius : '—'}
+          onChange={v => onChangeInline('border-radius', v)} min={0}
+          placeholder="mixed" />
+        <button onClick={() => setSplitCorners(s => !s)} title="Per-corner radius"
+          style={{ ...sIconBtn, color: splitCorners ? '#58a6ff' : '#6e7681', border: '1px solid ' + (splitCorners ? '#58a6ff' : '#30363d'), borderRadius: 4, padding: '2px 5px', fontSize: 10 }}>
+          ⌗
+        </button>
+      </Row>
+      {(splitCorners || !allSame) && (
+        <Row>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, flex: 1 }}>
+            {([
+              ['border-top-left-radius',     styles.borderTopLeftRadius,     'TL'],
+              ['border-top-right-radius',    styles.borderTopRightRadius,    'TR'],
+              ['border-bottom-left-radius',  styles.borderBottomLeftRadius,  'BL'],
+              ['border-bottom-right-radius', styles.borderBottomRightRadius, 'BR'],
+            ] as [string, string, string][]).map(([prop, val, label]) => (
+              <div key={prop} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                <span style={{ fontSize: 9, color: '#6e7681', width: 14 }}>{label}</span>
+                <NumberInput value={val} onChange={v => onChangeInline(prop, v)} min={0} />
+              </div>
+            ))}
+          </div>
+        </Row>
+      )}
+    </div>
+  );
+}
+
+// ─── EffectsControls ──────────────────────────────────────────────────────────
+
+function OpacitySlider({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const pct = Math.round(parseFloat(value) * 100);
+  return (
+    <Row label="Opacity">
+      <input type="range" min={0} max={100} value={pct}
+        onChange={e => onChange((parseInt(e.target.value) / 100).toString())}
+        style={{ flex: 1, accentColor: '#58a6ff', cursor: 'pointer' }} />
+      <span style={{ width: 34, textAlign: 'right', fontSize: 11, color: '#8b949e', flexShrink: 0 }}>{pct}%</span>
+    </Row>
+  );
+}
+
+// ─── ClassesBar ───────────────────────────────────────────────────────────────
+
+function ClassesBar({ classList, selectedPath, channel }: {
+  classList: string; selectedPath: number[]; channel: ReturnType<typeof addons.getChannel>;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [newCls, setNewCls] = useState('');
+  const classes = classList ? classList.split(/\s+/).filter(Boolean) : [];
+
+  const addCls = () => {
+    const trimmed = newCls.trim();
+    if (trimmed) {
+      channel.emit('DESIGN/ADD_CLASS', { path: selectedPath, cls: trimmed });
+      setNewCls('');
+    }
+    setAdding(false);
+  };
+
+  return (
+    <div style={{ padding: '6px 12px 8px' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+        {classes.map(cls => (
+          <div key={cls} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 3,
+            background: '#21262d', borderRadius: 3, padding: '2px 6px',
+            fontSize: 10, color: '#c9d1d9', fontFamily: 'monospace',
+          }}>
+            <span>{cls}</span>
+            <button onClick={() => channel.emit('DESIGN/REMOVE_CLASS', { path: selectedPath, cls })}
+              style={{ background: 'none', border: 'none', color: '#6e7681', cursor: 'pointer', padding: 0, fontSize: 10, lineHeight: 1 }}>×</button>
+          </div>
+        ))}
+        {adding ? (
+          <input
+            autoFocus
+            value={newCls}
+            onChange={e => setNewCls(e.target.value)}
+            onBlur={addCls}
+            onKeyDown={e => { if (e.key === 'Enter') addCls(); if (e.key === 'Escape') { setAdding(false); setNewCls(''); } }}
+            placeholder="class-name"
+            style={{
+              background: '#0d1117', border: '1px solid #58a6ff', borderRadius: 3,
+              color: '#c9d1d9', fontSize: 10, padding: '2px 6px', outline: 'none',
+              fontFamily: 'monospace', width: 100,
+            }}
+          />
+        ) : (
+          <button onClick={() => setAdding(true)}
+            style={{ background: 'none', border: '1px dashed #30363d', borderRadius: 3, color: '#6e7681', fontSize: 10, padding: '2px 6px', cursor: 'pointer' }}>
+            + class
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── ComponentVariants ────────────────────────────────────────────────────────
+
+function ComponentVariants({ storyId, channel, selectedPath }: {
+  storyId: string;
+  channel: ReturnType<typeof addons.getChannel>;
+  selectedPath: number[];
+}) {
+  const [variants, setVariants] = useState<Record<string, string[]>>({});
+  const [active,   setActive]   = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!storyId) return;
+    fetch(`${API_BASE}/api/component-variants?storyId=${encodeURIComponent(storyId)}`)
+      .then(r => r.json())
+      .then((d: { variants?: Record<string, string[]> }) => { if (d.variants) setVariants(d.variants); })
+      .catch(() => {});
+  }, [storyId]);
+
+  const keys = Object.keys(variants);
+  if (keys.length === 0) return null;
+
+  const applyVariant = (varName: string, val: string) => {
+    const prev = active[varName];
+    // Remove old variant class if any, add new one
+    if (prev) channel.emit('DESIGN/REMOVE_CLASS', { path: selectedPath, cls: prev });
+    // For CVA, the classes are applied via story args (variant prop), not raw classes.
+    // We emit a story-arg update via the channel for immediate visual feedback.
+    channel.emit('DESIGN/SET_STORY_ARG', { prop: varName, value: val });
+    setActive(a => ({ ...a, [varName]: val }));
+  };
+
+  return (
+    <div>
+      {keys.map(varName => (
+        <div key={varName} style={{ marginTop: 6 }}>
+          <div style={{ fontSize: 9, color: '#6e7681', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>{varName}</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+            {variants[varName].map(val => (
+              <button key={val} onClick={() => applyVariant(varName, val)}
+                style={{
+                  padding: '2px 8px', border: '1px solid ' + (active[varName] === val ? '#1f6feb' : '#30363d'),
+                  borderRadius: 3, cursor: 'pointer', fontSize: 10, fontFamily: 'inherit',
+                  background: active[varName] === val ? '#1f3a5f' : 'transparent',
+                  color: active[varName] === val ? '#58a6ff' : '#8b949e',
+                }}>
+                {val}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── ComboClasses ─────────────────────────────────────────────────────────────
+
+function ComboClasses({ storyId, classList, selectedPath, channel }: {
+  storyId: string;
+  classList: string;
+  selectedPath: number[];
+  channel: ReturnType<typeof addons.getChannel>;
+}) {
+  const [combos,    setCombos]    = useState<Record<string, string>>({});
+  const [naming,    setNaming]    = useState(false);
+  const [comboName, setComboName] = useState('');
+  const [active,    setActive]    = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!storyId) return;
+    fetch(`${API_BASE}/api/combo-classes?storyId=${encodeURIComponent(storyId)}`)
+      .then(r => r.json())
+      .then((d: { combos?: Record<string, string> }) => { if (d.combos) setCombos(d.combos); })
+      .catch(() => {});
+  }, [storyId]);
+
+  const saveCombo = async () => {
+    const name = comboName.trim();
+    if (!name || !classList) return;
+    const next = { ...combos, [name]: classList };
+    setCombos(next);
+    setNaming(false);
+    setComboName('');
+    await fetch(`${API_BASE}/api/combo-classes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ storyId, combos: next }),
+    }).catch(() => {});
+  };
+
+  const applyCombo = (name: string) => {
+    const cls = combos[name];
+    if (!cls) return;
+    if (active === name) {
+      // Deactivate — remove those classes
+      cls.split(/\s+/).filter(Boolean).forEach(c => channel.emit('DESIGN/REMOVE_CLASS', { path: selectedPath, cls: c }));
+      setActive(null);
+    } else {
+      // Apply
+      channel.emit('DESIGN/ADD_CLASS', { path: selectedPath, cls });
+      setActive(name);
+    }
+  };
+
+  const deleteCombo = async (name: string) => {
+    const next = { ...combos };
+    delete next[name];
+    setCombos(next);
+    if (active === name) setActive(null);
+    await fetch(`${API_BASE}/api/combo-classes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ storyId, combos: next }),
+    }).catch(() => {});
+  };
+
+  return (
+    <div style={{ padding: '6px 12px 8px' }}>
+      <div style={{ fontSize: 9, color: '#6e7681', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>Combo Classes</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+        {Object.keys(combos).map(name => (
+          <div key={name} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 3,
+            background: active === name ? '#1f3a5f' : '#21262d',
+            border: '1px solid ' + (active === name ? '#1f6feb' : '#30363d'),
+            borderRadius: 3, padding: '2px 6px',
+            fontSize: 10, color: active === name ? '#58a6ff' : '#c9d1d9', cursor: 'pointer',
+          }}>
+            <span onClick={() => applyCombo(name)} title={combos[name]}>{name}</span>
+            <button onClick={() => deleteCombo(name)}
+              style={{ background: 'none', border: 'none', color: '#6e7681', cursor: 'pointer', padding: 0, fontSize: 10, lineHeight: 1 }}>×</button>
+          </div>
+        ))}
+        {naming ? (
+          <input
+            autoFocus value={comboName}
+            onChange={e => setComboName(e.target.value)}
+            onBlur={saveCombo}
+            onKeyDown={e => { if (e.key === 'Enter') saveCombo(); if (e.key === 'Escape') { setNaming(false); setComboName(''); } }}
+            placeholder="combo name…"
+            style={{
+              background: '#0d1117', border: '1px solid #58a6ff', borderRadius: 3,
+              color: '#c9d1d9', fontSize: 10, padding: '2px 6px', outline: 'none',
+              fontFamily: 'monospace', width: 90,
+            }}
+          />
+        ) : (
+          <button onClick={() => setNaming(true)} title="Save current classes as a combo"
+            style={{ background: 'none', border: '1px dashed #30363d', borderRadius: 3, color: '#6e7681', fontSize: 10, padding: '2px 6px', cursor: 'pointer' }}>
+            + save combo
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Shared icon-button style (used in new sections) ──────────────────────────
+const sIconBtn: React.CSSProperties = {
+  background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, padding: '2px 4px', lineHeight: 1, fontFamily: 'inherit',
+};
+
 // ─── Main Panel ───────────────────────────────────────────────────────────────
 
 export function DesignPanel({ active }: { active: boolean }) {
@@ -603,6 +1299,11 @@ export function DesignPanel({ active }: { active: boolean }) {
     setSavedCount(c => c + 1);
     setTimeout(() => setSaved(null), 2000);
   }, []);
+
+  // ── Inline style changes (non-token, direct property on element) ─────────────
+  const applyInlineStyle = useCallback((prop: string, value: string) => {
+    channel.emit('DESIGN/SET_INLINE_STYLE', { path: selectedPath, prop, value });
+  }, [channel, selectedPath]);
 
   // ── Submit PR ──────────────────────────────────────────────────────────────
   const submitPR = useCallback(async () => {
@@ -902,6 +1603,36 @@ export function DesignPanel({ active }: { active: boolean }) {
           )}
         </Section>
 
+        {/* CLASSES + COMBOS */}
+        {styles && (
+          <Section label="Classes" noPad>
+            <ClassesBar classList={styles.classList ?? ''} selectedPath={selectedPath} channel={channel} />
+            <ComboClasses storyId={storyId} classList={styles.classList ?? ''} selectedPath={selectedPath} channel={channel} />
+          </Section>
+        )}
+
+        {/* COMPONENT VARIANTS */}
+        {storyId && (
+          <Section label="Variants" defaultOpen={true}>
+            <ComponentVariants storyId={storyId} channel={channel} selectedPath={selectedPath} />
+          </Section>
+        )}
+
+        {/* LAYOUT */}
+        <Section label="Layout" defaultOpen={true}>
+          <LayoutControls styles={styles} onChangeInline={applyInlineStyle} />
+        </Section>
+
+        {/* SIZE */}
+        <Section label="Size" defaultOpen={true}>
+          <SizeControls styles={styles} onChangeInline={applyInlineStyle} />
+        </Section>
+
+        {/* SPACING */}
+        <Section label="Spacing" defaultOpen={true}>
+          <SpacingBox styles={styles} onChangeInline={applyInlineStyle} />
+        </Section>
+
         {/* FILL */}
         <Section label="Fill">
           <Row>
@@ -910,26 +1641,15 @@ export function DesignPanel({ active }: { active: boolean }) {
           </Row>
         </Section>
 
-        {/* STROKE */}
-        <Section label="Stroke">
-          <Row>
-            <TokenField value={strokeVal} tokens={tokens} filter="color" onChange={v => applyOverride(strokeProp, v)} />
-            {styles?.borderWidth && <span style={{ fontSize: 11, color: '#8b949e', flexShrink: 0 }}>{styles.borderWidth}</span>}
-            <SaveBtn prop={strokeProp} value={strokeVal} />
-          </Row>
-        </Section>
-
         {/* TYPOGRAPHY */}
         <Section label="Typography" defaultOpen={false}>
-          <Row label="Color">
-            <TokenField value={textVal} tokens={tokens} filter="color" onChange={v => applyOverride(textProp, v)} />
-            <SaveBtn prop={textProp} value={textVal} />
-          </Row>
-          {styles && (
-            <Row label="Size">
-              <span style={{ fontSize: 11, color: '#8b949e' }}>{styles.fontSize} / w{styles.fontWeight}</span>
-            </Row>
-          )}
+          <TypographyControls
+            styles={styles} tokens={tokens}
+            textVal={textVal} textProp={textProp}
+            onChangeInline={applyInlineStyle}
+            onChangeToken={applyOverride}
+            onSave={saveToFile}
+          />
           {styles?.leafText !== undefined && styles.leafText !== '' && (
             <Row label="Text">
               <input
@@ -956,24 +1676,44 @@ export function DesignPanel({ active }: { active: boolean }) {
           )}
         </Section>
 
-        {/* APPEARANCE */}
-        <Section label="Appearance" defaultOpen={false}>
-          <Row label="Radius">
-            <TokenField
-              value={overrides.find(o => o.prop === '--radius-base')?.value ?? 'var(--radius-base)'}
-              tokens={tokens} filter="all"
-              onChange={v => applyOverride('--radius-base', v)} />
-            <SaveBtn prop="--radius-base" value={overrides.find(o => o.prop === '--radius-base')?.value ?? 'var(--radius-base)'} />
-          </Row>
+        {/* BORDER */}
+        <Section label="Border" defaultOpen={false}>
+          <BorderControls
+            styles={styles} tokens={tokens}
+            strokeVal={strokeVal} strokeProp={strokeProp}
+            onChangeInline={applyInlineStyle}
+            onChangeToken={applyOverride}
+            onSave={saveToFile}
+          />
+        </Section>
+
+        {/* EFFECTS */}
+        <Section label="Effects" defaultOpen={false}>
           {styles && (
-            <Row label="Opacity">
-              <span style={{ fontSize: 11, color: '#8b949e' }}>{Math.round(parseFloat(styles.opacity) * 100)}%</span>
-            </Row>
+            <>
+              <OpacitySlider
+                value={styles.opacity}
+                onChange={v => applyInlineStyle('opacity', v)}
+              />
+              {styles.boxShadow && styles.boxShadow !== 'none' && (
+                <Row label="Shadow">
+                  <span style={{ fontSize: 10, color: '#8b949e', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    title={styles.boxShadow}>
+                    {styles.boxShadow.length > 32 ? styles.boxShadow.slice(0, 32) + '…' : styles.boxShadow}
+                  </span>
+                </Row>
+              )}
+              {styles.filter && styles.filter !== 'none' && (
+                <Row label="Filter">
+                  <span style={{ fontSize: 10, color: '#8b949e' }}>{styles.filter}</span>
+                </Row>
+              )}
+            </>
           )}
         </Section>
 
         {/* TOKEN OVERRIDES */}
-        <Section label="Token overrides">
+        <Section label="CSS Variables" defaultOpen={false}>
           {overrides.map(o => {
             const entry = tokens.find(t => t.name === o.prop);
             const filter = entry?.type === 'color' ? 'color' : entry?.type === 'size' ? 'size' : 'all';

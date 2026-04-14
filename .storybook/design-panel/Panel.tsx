@@ -1431,7 +1431,8 @@ export function DesignPanel({ active }: { active: boolean }) {
   const canvasBg = canvasMode === 'dark' ? canvasBgDark : canvasBgLight;
   useEffect(() => {
     channel.emit('DESIGN/SET_CANVAS_BG', { color: canvasBg });
-  }, [canvasBg, channel]);
+    channel.emit('DESIGN/SET_THEME', { theme: canvasMode });
+  }, [canvasBg, canvasMode, channel]);
 
   // ── Custom global variants ────────────────────────────────────────────────────
   const [customVariants, setCustomVariants] = useState<Array<{ name: string; values: string[] }>>([]);
@@ -1535,6 +1536,8 @@ export function DesignPanel({ active }: { active: boolean }) {
     const t = setTimeout(() => {
       try { channel.emit('DESIGN/BUILD_TREE'); } catch { /* channel not ready */ }
       try { channel.emit('DESIGN/INSPECT'); } catch { /* channel not ready */ }
+      // Re-apply theme so new story iframe picks up the correct .dark class
+      try { channel.emit('DESIGN/SET_THEME', { theme: canvasMode }); } catch { /* not ready */ }
       // Re-resolve token colors via browser after story CSS context is ready
       if (colorNamesRef.current.length > 0) {
         try { channel.emit('DESIGN/RESOLVE_TOKENS', colorNamesRef.current); } catch { /* not ready */ }
@@ -1548,7 +1551,7 @@ export function DesignPanel({ active }: { active: boolean }) {
       }
     }, 300);
     return () => clearTimeout(t);
-  }, [active, storyId, channel]);
+  }, [active, storyId, canvasMode, channel]);
 
   useEffect(() => {
     const onTree   = (t: TreeNode | null) => setTree(t);

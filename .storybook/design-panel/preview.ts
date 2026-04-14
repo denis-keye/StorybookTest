@@ -515,6 +515,16 @@ channel.on('DESIGN/SET_CANVAS_BG', ({ color }: { color: string }) => {
   document.documentElement.style.background = color;
 });
 
+// Toggle light/dark theme on the preview document so components re-render
+// with the correct CSS variable set (requires .dark class convention).
+channel.on('DESIGN/SET_THEME', ({ theme }: { theme: 'light' | 'dark' }) => {
+  if (theme === 'dark') {
+    document.documentElement.classList.add('dark');
+  } else {
+    document.documentElement.classList.remove('dark');
+  }
+});
+
 // Wrap the target element in a new empty div, rebuild tree
 channel.on('DESIGN/WRAP_IN_DIV', ({ path }: { path: number[] }) => {
   const el = path.length === 0 ? getStoryRoot() : getElementByPath(path);

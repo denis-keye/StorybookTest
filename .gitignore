@@ -45,3 +45,5 @@ storybook-static/
 .storybook-out/
 storybook-static
 /public/storybook
+/public/sb
+.env*.local

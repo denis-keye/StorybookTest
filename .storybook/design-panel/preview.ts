@@ -273,10 +273,11 @@ channel.on('DESIGN/INSPECT', () => {
 });
 
 // Inspect a specific layer by path + highlight it
+// path=[] means the story root element itself
 channel.on('DESIGN/SELECT_LAYER', (path: number[]) => {
-  const el = getElementByPath(path);
+  const el = path.length === 0 ? getStoryRoot() : getElementByPath(path);
   if (el instanceof HTMLElement) setHighlight(el);
-  channel.emit('DESIGN/STYLES', el ? readStyles(el) : null);
+  channel.emit('DESIGN/STYLES', el ? readStyles(el as HTMLElement) : null);
 });
 
 // Update text content of a leaf element

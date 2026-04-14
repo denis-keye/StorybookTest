@@ -493,7 +493,8 @@ function NumberInput({ value, onChange, min, max, step = 1, suffix = '', placeho
   }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const commit = (raw: string) => {
-    const n = parseFloat(raw);
+    // Treat empty string as 0 so clearing the field and blurring sets 0
+    const n = raw.trim() === '' ? 0 : parseFloat(raw);
     if (!isNaN(n)) {
       const next = n + (suffix || 'px');
       setCommitted(n.toString());
@@ -1582,7 +1583,9 @@ export function DesignPanel({ active }: { active: boolean }) {
   const selectLayer = useCallback((node: TreeNode) => {
     setSelectedId(node.id);
     setSelectedPath(node.path);
-    channel.emit(node.path.length === 0 ? 'DESIGN/INSPECT' : 'DESIGN/SELECT_LAYER', node.path);
+    // Always use SELECT_LAYER so the pink highlight fires even on the root element.
+    // SELECT_LAYER calls readStyles + setHighlight; INSPECT only called on story load.
+    channel.emit('DESIGN/SELECT_LAYER', node.path);
   }, [channel]);
 
   // ── Save to Code ─────────────────────────────────────────────────────────────

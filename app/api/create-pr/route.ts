@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { workingBranch, getEnv } from '@/lib/github-api';
+import { workingBranch, getEnv, ensureBranch } from '@/lib/github-api';
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,7 +14,35 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'GITHUB_TOKEN not configured on the server' }, { status: 400 });
     }
 
-    const branch  = workingBranch();
+    const branch = workingBranch();
+
+    // Ensure the head branch exists — if Save was never clicked it may not exist yet
+    await ensureBranch(branch);
+
+    // Check for an existing open PR on this head branch
+    const existingRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/pulls?head=${owner}:${branch}&state=open`,
+      { headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github.v3+json' } },
+    );
+    if (existingRes.ok) {
+      const existing = await existingRes.json() as Array<{ html_url: string; number: number }>;
+      if (existing.length > 0) {
+        return NextResponse.json({ ok: true, url: existing[0].html_url, branch, prNumber: existing[0].number, existing: true });
+      }
+    }
+
+    // Check if there are any commits ahead of base before trying to open a PR
+    const compareRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/compare/${baseBranch}...${branch}`,
+      { headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github.v3+json' } },
+    );
+    if (compareRes.ok) {
+      const cmp = await compareRes.json() as { ahead_by: number };
+      if (cmp.ahead_by === 0) {
+        return NextResponse.json({ error: 'No changes to PR — use Save first to commit your changes to a branch.' }, { status: 422 });
+      }
+    }
+
     const prBody  = `${body}\n\n---\n*Created from the Storybook Design Panel*`;
 
     const apiRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls`, {
@@ -28,8 +56,9 @@ export async function POST(req: NextRequest) {
     });
 
     if (!apiRes.ok) {
-      const err = await apiRes.json() as { message?: string };
-      throw new Error(err.message ?? `GitHub API ${apiRes.status}`);
+      const err = await apiRes.json() as { message?: string; errors?: Array<{ message: string }> };
+      const detail = err.errors?.map(e => e.message).join('; ') ?? err.message ?? `GitHub API ${apiRes.status}`;
+      throw new Error(detail);
     }
 
     const pr = await apiRes.json() as { html_url: string; number: number };

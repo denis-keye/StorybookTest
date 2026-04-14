@@ -1993,7 +1993,9 @@ export function DesignPanel({ active }: { active: boolean }) {
           {prResult?.url ? (
             /* ── Success ── */
             <div>
-              <div style={{ color: SB.success, fontSize: 11, marginBottom: 6 }}>✓ PR created successfully!</div>
+              <div style={{ color: SB.success, fontSize: 11, marginBottom: 6 }}>
+                {(prResult as {existing?: boolean}).existing ? '↗ PR already open — opening existing PR' : '✓ PR created successfully!'}
+              </div>
               <a href={prResult.url} target="_blank" rel="noreferrer"
                 style={{ color: SB.accent, fontSize: 11, wordBreak: 'break-all', display: 'block', marginBottom: 8 }}>
                 {prResult.url}

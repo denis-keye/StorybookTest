@@ -1,13 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  async redirects() {
+  async rewrites() {
     return [
-      {
-        source: '/sb',
-        destination: '/sb/',
-        permanent: false,
-      },
+      { source: '/sb', destination: '/sb/index.html' },
     ];
   },
   async headers() {

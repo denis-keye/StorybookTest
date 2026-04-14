@@ -624,21 +624,19 @@ function OpacitySlider({ value, onChange }: { value: string; onChange: (v: strin
   );
 }
 
-// ─── SkinInput ────────────────────────────────────────────────────────────────
-// The "skin" of a component is a single class name that references all its
-// visual properties as a collective (like a Tailwind component class or a CVA
-// base). This component lets you set that one class and shows a read-only
-// preview of the computed styles it resolves to. Utility overrides (the long
-// Tailwind soup) are shown as small removable pills below — you don't need to
-// type them, they're already there from the component source.
+// ─── ClassPanel ───────────────────────────────────────────────────────────────
+// Webflow-style class panel:
+//   • Every class on the element is shown as a pill
+//   • Semantic classes (non-utility, e.g. "btn-primary") → accent pill (primary)
+//   • Tailwind utility classes → subtle pill (secondary), hidden behind a toggle
+//   • + button adds a new class via inline input
+//   • × on any pill removes it
+//   • Computed style summary (bg, color, radius…) shown below the pills
 
-// Heuristic: a "skin" class is short, has no colon (no responsive/state prefix),
-// and is not a pure Tailwind utility (no hyphen between known prefix + value).
-// Everything else is a utility modifier shown as read-only pills.
 const TAILWIND_PREFIXES_RE = /^(flex|grid|block|inline|hidden|absolute|relative|fixed|sticky|overflow|z-|w-|h-|min-|max-|p-|px-|py-|pt-|pr-|pb-|pl-|m-|mx-|my-|mt-|mr-|mb-|ml-|gap-|space-|text-|font-|leading-|tracking-|bg-|border-|rounded-|shadow-|ring-|opacity-|transition-|duration-|ease-|delay-|scale-|rotate-|translate-|skew-|origin-|cursor-|select-|appearance-|outline-|sr-|not-sr-|list-|object-|place-|content-|items-|justify-|self-|col-|row-|order-|grow|shrink|basis-|aspect-|columns-|float-|clear-|box-|table-|caption-|border-collapse|border-separate|align-|whitespace-|break-|truncate|line-clamp|underline|overline|line-through|no-underline|uppercase|lowercase|capitalize|normal-case|italic|not-italic|antialiased|subpixel-antialiased|divide-|accent-|caret-|fill-|stroke-|decoration-|indent-|vertical-|hyphens-|resize|pointer-|touch-|user-|will-change-|forced-color|print:|dark:|rtl:|ltr:|open:|motion-|snap-|scroll-)/;
 
 function isTailwindUtil(cls: string): boolean {
-  if (cls.includes(':')) return true; // state/responsive modifier
+  if (cls.includes(':')) return true;
   return TAILWIND_PREFIXES_RE.test(cls);
 }
 
@@ -648,66 +646,124 @@ function SkinInput({ classList, styles, onAddClass, onRemoveClass }: {
   onAddClass: (cls: string) => void;
   onRemoveClass: (cls: string) => void;
 }) {
-  const classes   = classList.split(/\s+/).filter(Boolean);
-  const skinClass = classes.find(c => !isTailwindUtil(c)) ?? '';
-  const utils     = classes.filter(c => isTailwindUtil(c));
+  const classes      = classList.split(/\s+/).filter(Boolean);
+  const semantics    = classes.filter(c => !isTailwindUtil(c));
+  const utils        = classes.filter(c => isTailwindUtil(c));
 
-  const [draft,   setDraft]   = useState(skinClass);
-  const [focused, setFocused] = useState(false);
+  const [adding,     setAdding]    = useState(false);
+  const [draft,      setDraft]     = useState('');
+  const [showUtils,  setShowUtils] = useState(false);
 
-  useEffect(() => { if (!focused) setDraft(skinClass); }, [skinClass, focused]);
-
-  const commit = () => {
-    setFocused(false);
-    const next = draft.trim();
-    if (next === skinClass) return;
-    if (skinClass) onRemoveClass(skinClass);
-    if (next)      onAddClass(next);
+  const commitAdd = () => {
+    const trimmed = draft.trim();
+    if (trimmed) {
+      trimmed.split(/\s+/).forEach(c => { if (c) onAddClass(c); });
+    }
+    setDraft('');
+    setAdding(false);
   };
 
-  // Resolved style preview — key properties that a skin class typically controls
+  // Resolved style summary
   const preview: { label: string; value: string }[] = [];
   if (styles) {
-    if (styles.backgroundColor && styles.backgroundColor !== 'rgba(0, 0, 0, 0)') preview.push({ label: 'bg',      value: styles.backgroundColor });
+    if (styles.backgroundColor && styles.backgroundColor !== 'transparent' && styles.backgroundColor !== 'rgba(0,0,0,0)') preview.push({ label: 'bg', value: styles.backgroundColor });
     if (styles.color)             preview.push({ label: 'color',   value: styles.color });
-    if (styles.borderRadius && styles.borderRadius !== '0px') preview.push({ label: 'radius',  value: styles.borderRadius });
+    if (styles.borderRadius && styles.borderRadius !== '0px') preview.push({ label: 'radius', value: styles.borderRadius });
     if (styles.fontSize)          preview.push({ label: 'size',    value: styles.fontSize });
-    if (styles.fontWeight && styles.fontWeight !== '400') preview.push({ label: 'weight',  value: styles.fontWeight });
-    if (styles.paddingTop && styles.paddingTop !== '0px') preview.push({ label: 'padding',  value: styles.paddingTop });
+    if (styles.fontWeight && styles.fontWeight !== '400') preview.push({ label: 'weight', value: styles.fontWeight });
+    if (styles.paddingTop && styles.paddingTop !== '0px') preview.push({ label: 'padding', value: styles.paddingTop });
   }
 
   return (
     <div style={{ padding: '8px 12px 10px' }}>
-      {/* Skin class field */}
-      <div style={{ marginBottom: 8 }}>
-        <div style={{ fontSize: 9, color: SB.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>Skin</div>
-        <input
-          value={draft}
-          onChange={e => setDraft(e.target.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={commit}
-          onKeyDown={e => {
-            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-            if (e.key === 'Escape') { setDraft(skinClass); setFocused(false); }
-          }}
-          spellCheck={false}
-          placeholder="e.g. badge, btn-primary…"
-          style={{
-            width: '100%', boxSizing: 'border-box',
-            background: focused ? SB.bgSecondary : SB.bgHover,
-            border: `1px solid ${focused ? SB.accent : SB.border}`,
-            borderRadius: SB.radius, color: SB.text, fontSize: 12,
-            padding: '5px 8px', outline: 'none', fontFamily: SB.mono,
-            transition: 'border-color 0.1s',
-          }}
-        />
+
+      {/* ── Class pills row ── */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center', marginBottom: 8 }}>
+
+        {/* Semantic class pills — accent coloured, primary identity */}
+        {semantics.map(cls => (
+          <span key={cls} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 3,
+            background: `${SB.accent}22`, border: `1px solid ${SB.accent}66`,
+            borderRadius: SB.radius, padding: '2px 6px 2px 7px',
+            fontSize: 11, color: SB.accent, fontFamily: SB.mono, fontWeight: 600,
+          }}>
+            {cls}
+            <button onClick={() => onRemoveClass(cls)} title={`Remove .${cls}`}
+              style={{ background: 'none', border: 'none', color: SB.accent, opacity: 0.7, cursor: 'pointer', padding: 0, fontSize: 10, lineHeight: 1, display: 'flex', alignItems: 'center' }}>×</button>
+          </span>
+        ))}
+
+        {/* + Add class button / inline input */}
+        {adding ? (
+          <input
+            autoFocus
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onBlur={commitAdd}
+            onKeyDown={e => {
+              if (e.key === 'Enter')  commitAdd();
+              if (e.key === 'Escape') { setDraft(''); setAdding(false); }
+            }}
+            placeholder="class-name"
+            spellCheck={false}
+            style={{
+              background: SB.bgSecondary, border: `1px solid ${SB.accent}`,
+              borderRadius: SB.radius, color: SB.text, fontSize: 11,
+              padding: '2px 6px', outline: 'none', fontFamily: SB.mono,
+              width: 110,
+            }}
+          />
+        ) : (
+          <button onClick={() => setAdding(true)} title="Add class"
+            style={{
+              background: 'none', border: `1px dashed ${SB.border}`,
+              borderRadius: SB.radius, color: SB.textMuted, cursor: 'pointer',
+              fontSize: 11, padding: '2px 7px', fontFamily: SB.font, lineHeight: 1.4,
+              transition: 'border-color 0.1s, color 0.1s',
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = SB.accent; (e.currentTarget as HTMLElement).style.color = SB.accent; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = SB.border; (e.currentTarget as HTMLElement).style.color = SB.textMuted; }}
+          >+ class</button>
+        )}
+
+        {/* Utility toggle badge */}
+        {utils.length > 0 && (
+          <button onClick={() => setShowUtils(v => !v)} title="Toggle utility classes"
+            style={{
+              background: 'none', border: `1px solid ${SB.border}`,
+              borderRadius: SB.radius, color: SB.textMuted, cursor: 'pointer',
+              fontSize: 9, padding: '2px 6px', fontFamily: SB.mono,
+              opacity: showUtils ? 1 : 0.6,
+            }}>
+            {showUtils ? '▾' : '▸'} {utils.length}
+          </button>
+        )}
       </div>
 
-      {/* Resolved style preview */}
+      {/* ── Utility pills (collapsed by default) ── */}
+      {showUtils && utils.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginBottom: 8 }}>
+          {utils.map(cls => (
+            <span key={cls} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 2,
+              background: SB.bgSecondary, border: `1px solid ${SB.border}`,
+              borderRadius: SB.radiusSm, padding: '1px 5px',
+              fontSize: 9, color: SB.textMuted, fontFamily: SB.mono,
+            }}>
+              {cls}
+              <button onClick={() => onRemoveClass(cls)}
+                style={{ background: 'none', border: 'none', color: SB.textMuted, cursor: 'pointer', padding: '0 0 0 2px', fontSize: 9, lineHeight: 1 }}>×</button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* ── Computed style summary ── */}
       {preview.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 10px', marginBottom: 8 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 10px' }}>
           {preview.map(p => (
-            <div key={p.label} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: SB.textMuted }}>
+            <div key={p.label} style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: SB.textMuted }}>
               <span>{p.label}</span>
               {p.label === 'bg' || p.label === 'color' ? (
                 <span style={{
@@ -722,38 +778,6 @@ function SkinInput({ classList, styles, onAddClass, onRemoveClass }: {
         </div>
       )}
 
-      {/* Utility modifier pills — collapsible, read-only, removable */}
-      {utils.length > 0 && <ModifierPills utils={utils} onRemove={onRemoveClass} />}
-    </div>
-  );
-}
-
-function ModifierPills({ utils, onRemove }: { utils: string[]; onRemove: (cls: string) => void }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div>
-      <button onClick={() => setOpen(o => !o)} style={{
-        background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-        display: 'flex', alignItems: 'center', gap: 4, marginBottom: open ? 4 : 0,
-      }}>
-        <span style={{ fontSize: 9, color: SB.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Modifiers</span>
-        <span style={{ fontSize: 9, color: SB.textMuted, opacity: 0.6 }}>{open ? '▾' : '▸'} {utils.length}</span>
-      </button>
-      {open && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-          {utils.map(cls => (
-            <span key={cls} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 2,
-              background: SB.bgSecondary, borderRadius: SB.radius, padding: '1px 5px',
-              fontSize: 9, color: SB.textMuted, fontFamily: SB.mono,
-            }}>
-              {cls}
-              <button onClick={() => onRemove(cls)}
-                style={{ background: 'none', border: 'none', color: SB.textMuted, cursor: 'pointer', padding: '0 0 0 2px', fontSize: 9, lineHeight: 1 }}>×</button>
-            </span>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

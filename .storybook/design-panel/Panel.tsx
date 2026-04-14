@@ -1424,15 +1424,23 @@ export function DesignPanel({ active }: { active: boolean }) {
   // ── Global section open/close ─────────────────────────────────────────────────
   const [globalOpenState, setGlobalOpenState] = useState<boolean | null>(null);
 
-  // ── Canvas bg ─────────────────────────────────────────────────────────────────
-  const [canvasMode,    setCanvasMode]    = useState<'light' | 'dark'>('dark');
+  // ── Canvas theme ───────────────────────────────────────────────────────────────
+  // defaultMode: which mode component properties are saved for
+  // previewMode: what's currently shown in the canvas (can differ to preview alt mode)
+  const [defaultMode,   setDefaultMode]   = useState<'light' | 'dark'>('dark');
+  const [previewMode,   setPreviewMode]   = useState<'light' | 'dark'>('dark');
   const [canvasBgLight, setCanvasBgLight] = useState('#ffffff');
   const [canvasBgDark,  setCanvasBgDark]  = useState('#0f0f10');
-  const canvasBg = canvasMode === 'dark' ? canvasBgDark : canvasBgLight;
+  const canvasBg = previewMode === 'dark' ? canvasBgDark : canvasBgLight;
+
+  const applyCanvasTheme = useCallback((mode: 'light' | 'dark', bg: string) => {
+    try { channel.emit('DESIGN/SET_THEME', { theme: mode }); } catch { /* not ready */ }
+    try { channel.emit('DESIGN/SET_CANVAS_BG', { color: bg }); } catch { /* not ready */ }
+  }, [channel]);
+
   useEffect(() => {
-    channel.emit('DESIGN/SET_CANVAS_BG', { color: canvasBg });
-    channel.emit('DESIGN/SET_THEME', { theme: canvasMode });
-  }, [canvasBg, canvasMode, channel]);
+    applyCanvasTheme(previewMode, canvasBg);
+  }, [previewMode, canvasBg, applyCanvasTheme]);
 
   // ── Custom global variants ────────────────────────────────────────────────────
   const [customVariants, setCustomVariants] = useState<Array<{ name: string; values: string[] }>>([]);
@@ -1537,7 +1545,8 @@ export function DesignPanel({ active }: { active: boolean }) {
       try { channel.emit('DESIGN/BUILD_TREE'); } catch { /* channel not ready */ }
       try { channel.emit('DESIGN/INSPECT'); } catch { /* channel not ready */ }
       // Re-apply theme so new story iframe picks up the correct .dark class
-      try { channel.emit('DESIGN/SET_THEME', { theme: canvasMode }); } catch { /* not ready */ }
+      try { channel.emit('DESIGN/SET_THEME', { theme: previewMode }); } catch { /* not ready */ }
+      try { channel.emit('DESIGN/SET_CANVAS_BG', { color: canvasBg }); } catch { /* not ready */ }
       // Re-resolve token colors via browser after story CSS context is ready
       if (colorNamesRef.current.length > 0) {
         try { channel.emit('DESIGN/RESOLVE_TOKENS', colorNamesRef.current); } catch { /* not ready */ }
@@ -1551,7 +1560,7 @@ export function DesignPanel({ active }: { active: boolean }) {
       }
     }, 300);
     return () => clearTimeout(t);
-  }, [active, storyId, canvasMode, channel]);
+  }, [active, storyId, previewMode, canvasBg, channel]);
 
   useEffect(() => {
     const onTree   = (t: TreeNode | null) => setTree(t);
@@ -2040,17 +2049,50 @@ export function DesignPanel({ active }: { active: boolean }) {
 
       {/* ── Subheader: collapse-all + canvas bg ────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '3px 10px 3px 14px', borderBottom: `1px solid ${SB.border}`, flexShrink: 0 }}>
-        {/* Canvas bg */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        {/* Canvas theme */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <span style={{ fontSize: 9, color: SB.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Canvas</span>
-          <button onClick={() => setCanvasMode(m => m === 'dark' ? 'light' : 'dark')}
-            style={{ fontSize: 9, fontFamily: SB.mono, padding: '1px 6px', borderRadius: SB.radiusSm, border: `1px solid ${SB.border}`, background: 'transparent', color: SB.textMuted, cursor: 'pointer' }}>
-            {canvasMode === 'dark' ? '☽ Dark' : '☀️ Light'}
-          </button>
+          {(['dark', 'light'] as const).map(mode => {
+            const isPreview = previewMode === mode;
+            const isDefault = defaultMode === mode;
+            return (
+              <div key={mode} style={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                {/* Preview toggle */}
+                <button
+                  onClick={() => setPreviewMode(mode)}
+                  title={`Preview ${mode} mode${isDefault ? ' (default)' : ''}`}
+                  style={{
+                    fontSize: 9, fontFamily: SB.mono, padding: '1px 5px',
+                    borderRadius: SB.radiusSm, cursor: 'pointer',
+                    border: `1px solid ${isPreview ? SB.accent : SB.border}`,
+                    background: isPreview ? SB.accentGlow : 'transparent',
+                    color: isPreview ? SB.accent : SB.textMuted,
+                    fontWeight: isDefault ? 700 : 400,
+                  }}>
+                  {mode === 'dark' ? '☽' : '☀️'} {mode === 'dark' ? 'Dark' : 'Light'}
+                </button>
+                {/* Pin as default */}
+                <button
+                  onClick={() => setDefaultMode(mode)}
+                  title={isDefault ? 'Default mode (changes propagate here)' : `Set ${mode} as default`}
+                  style={{
+                    fontSize: 8, padding: '1px 2px', background: 'none', cursor: 'pointer',
+                    border: 'none', color: isDefault ? SB.accent : SB.textMuted,
+                    opacity: isDefault ? 1 : 0.35, lineHeight: 1,
+                  }}>
+                  ◆
+                </button>
+              </div>
+            );
+          })}
+          {/* Override indicator */}
+          {previewMode !== defaultMode && (
+            <span style={{ fontSize: 8, color: SB.accent, fontFamily: SB.mono, opacity: 0.8 }}>preview only</span>
+          )}
           <input type="color" value={canvasBg}
-            onChange={e => canvasMode === 'dark' ? setCanvasBgDark(e.target.value) : setCanvasBgLight(e.target.value)}
-            title={`Canvas ${canvasMode} bg`}
-            style={{ width: 20, height: 20, border: `1px solid ${SB.border}`, borderRadius: SB.radiusSm, padding: 0, background: 'none', cursor: 'pointer' }} />
+            onChange={e => previewMode === 'dark' ? setCanvasBgDark(e.target.value) : setCanvasBgLight(e.target.value)}
+            title={`Canvas ${previewMode} bg`}
+            style={{ width: 16, height: 16, border: `1px solid ${SB.border}`, borderRadius: SB.radiusSm, padding: 0, background: 'none', cursor: 'pointer' }} />
         </div>
         {/* Collapse/expand all */}
         <div style={{ display: 'flex', gap: 2 }}>

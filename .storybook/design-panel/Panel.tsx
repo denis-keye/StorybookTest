@@ -5,9 +5,11 @@ import type { TreeNode } from './preview';
 // When building the static Storybook for Vercel, set STORYBOOK_API_BASE to the
 // Next.js deployment URL (e.g. https://my-app.vercel.app) so API calls route to
 // the serverless functions instead of the local Vite plugin.
-const API_BASE = (typeof process !== 'undefined' && process.env.STORYBOOK_API_BASE)
-  ? process.env.STORYBOOK_API_BASE.replace(/\/$/, '')
-  : '';
+// Storybook uses Vite, so env vars are accessed via import.meta.env (prefixed STORYBOOK_).
+const _importMetaEnv = (typeof import.meta !== 'undefined')
+  ? (import.meta as unknown as Record<string, Record<string, string>>).env
+  : undefined;
+const API_BASE: string = (_importMetaEnv?.STORYBOOK_API_BASE ?? '').replace(/\/$/, '');
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

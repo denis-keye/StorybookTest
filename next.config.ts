@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
     return [
       { source: '/index.json', destination: '/sb/index.json' },
       { source: '/project.json', destination: '/sb/project.json' },
+      { source: '/iframe.html', destination: '/sb/iframe.html' },
     ];
   },
   async headers() {

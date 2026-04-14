@@ -237,73 +237,24 @@
 
   /* ── Panel DOM patches ── */
   (function() {
-    var HINT_ATTR  = 'data-sb-hint-injected';
-    var BTN_ID     = 'sb-panel-toggle-btn';
-    var panelOpen  = true;
+    var HINT_ATTR = 'data-sb-hint-injected';
 
     var INSTRUCTIONS = {
       controls: 'Controls let you change the props passed into a story without editing code. Tweak values here to see the canvas update live — these changes are temporary and not saved to source.',
       actions:  'Actions captures event callbacks (e.g. onClick, onChange) fired by the component. Click or interact with the story in the canvas above and each event will be logged here.'
     };
 
-    /* Chevron SVG — points left (‹) when panel is open (to close), right (›) when closed */
-    function chevronSVG(open) {
-      /* open=true  → chevron points right  → clicking will close the panel  */
-      /* open=false → chevron points left   → clicking will open  the panel  */
-      var deg = open ? 0 : 180;
-      return '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"'
-        + ' style="transform:rotate(' + deg + 'deg);transition:transform 0.2s ease">'
-        + '<path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'
-        + '</svg>';
-    }
-
-    /* Inject the single toggle button into the main toolbar (top bar) */
-    function injectToggleBtn() {
-      if (document.getElementById(BTN_ID)) return;
-      var toolbar = document.querySelector('[role="toolbar"]');
-      if (!toolbar) return;
-
-      var btn = document.createElement('button');
-      btn.id = BTN_ID;
-      btn.title = 'Toggle panel';
-      btn.innerHTML = chevronSVG(panelOpen);
-      btn.style.cssText = [
-        'display:flex',
-        'align-items:center',
-        'justify-content:center',
-        'width:28px',
-        'height:28px',
-        'border-radius:4px',
-        'border:none',
-        'background:transparent',
-        'color:rgba(232,232,237,0.55)',
-        'cursor:pointer',
-        'margin-left:auto',
-        'flex-shrink:0',
-        'transition:background 0.1s,color 0.1s',
-      ].join(';');
-
-      btn.addEventListener('mouseenter', function() {
-        btn.style.background = '#2e2e34';
-        btn.style.color = '#e8e8ed';
-      });
-      btn.addEventListener('mouseleave', function() {
-        btn.style.background = 'transparent';
-        btn.style.color = 'rgba(232,232,237,0.55)';
-      });
-      btn.addEventListener('click', function() {
-        /* Trigger Storybook's built-in keyboard shortcut: D = toggle panel */
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', bubbles: true }));
-        panelOpen = !panelOpen;
-        btn.innerHTML = chevronSVG(panelOpen);
-      });
-
-      toolbar.appendChild(btn);
-    }
-
     function patch() {
-      /* ── 1. Hide the original two panel icon buttons ── */
-      /* They live as siblings of the tablist inside the panel header */
+      /* ── 1. Hide ALL panel icon buttons (in toolbar and in panel header) ── */
+      /* Scan every button; hide those that contain only an SVG (icon-only) and
+         sit inside the toolbar or adjacent to the panel tablist */
+      document.querySelectorAll('[role="toolbar"] button').forEach(function(btn) {
+        /* Only has SVG children (no text) → it's an icon-only layout button */
+        var text = (btn.textContent || '').trim();
+        if (!text && btn.querySelector('svg')) {
+          btn.style.setProperty('display', 'none', 'important');
+        }
+      });
       var tablist = document.querySelector('[role="tablist"]');
       if (tablist) {
         var parent = tablist.parentElement;
@@ -334,10 +285,7 @@
         });
       }
 
-      /* ── 3. Inject single chevron toggle into toolbar ── */
-      injectToggleBtn();
-
-      /* ── 4. Instruction banners for Controls / Actions panels ── */
+      /* ── 3. Instruction banners for Controls / Actions panels ── */
       document.querySelectorAll('[id]').forEach(function(el) {
         var id  = el.id.toLowerCase();
         var key = id.includes('control') ? 'controls' : id.includes('action') ? 'actions' : null;

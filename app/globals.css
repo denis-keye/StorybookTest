@@ -49,7 +49,7 @@
 }
 
 :root {
-  --border-primary: var(--sidebar-accent-foreground);
+  --border-primary: var(--popover);
   --bg-primary: var(--destructive);
   --bg-primary: var(--destructive);
   --bg-primary: var(--destructive);

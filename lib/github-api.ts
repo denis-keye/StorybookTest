@@ -2,14 +2,18 @@
 // All writes go to a per-user working branch derived from the GitHub token.
 // The token is read from the GITHUB_TOKEN env var (set in Vercel dashboard).
 
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? '';
-const OWNER        = process.env.GITHUB_OWNER  ?? '';
-const REPO         = process.env.GITHUB_REPO   ?? '';
-const BASE_BRANCH  = process.env.GITHUB_BRANCH ?? 'main';
-
 const BASE = 'https://api.github.com';
 
-function headers(token = GITHUB_TOKEN) {
+function env() {
+  return {
+    token:  process.env.GITHUB_TOKEN  ?? '',
+    owner:  process.env.GITHUB_OWNER  ?? '',
+    repo:   process.env.GITHUB_REPO   ?? '',
+    branch: process.env.GITHUB_BRANCH ?? 'main',
+  };
+}
+
+function headers(token: string) {
   return {
     Authorization: `token ${token}`,
     Accept:        'application/vnd.github.v3+json',
@@ -26,13 +30,18 @@ export interface GithubFileResult {
 /** GET /repos/:owner/:repo/contents/:path on a given branch */
 export async function getFile(
   filePath: string,
-  branch = BASE_BRANCH,
-  token   = GITHUB_TOKEN,
-  owner   = OWNER,
-  repo    = REPO,
+  branch?: string,
+  token?: string,
+  owner?: string,
+  repo?: string,
 ): Promise<GithubFileResult> {
-  const url = `${BASE}/repos/${owner}/${repo}/contents/${filePath}?ref=${branch}`;
-  const res = await fetch(url, { headers: headers(token) });
+  const e = env();
+  const t = token  ?? e.token;
+  const o = owner  ?? e.owner;
+  const r = repo   ?? e.repo;
+  const b = branch ?? e.branch;
+  const url = `${BASE}/repos/${o}/${r}/contents/${filePath}?ref=${b}`;
+  const res = await fetch(url, { headers: headers(t) });
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`GitHub GET ${filePath}: ${res.status} ${err}`);
@@ -47,20 +56,24 @@ export async function putFile(
   filePath: string,
   content:  string,
   message:  string,
-  sha:      string | null,   // null = create new file
+  sha:      string | null,
   branch:   string,
-  token   = GITHUB_TOKEN,
-  owner   = OWNER,
-  repo    = REPO,
+  token?: string,
+  owner?: string,
+  repo?: string,
 ): Promise<void> {
-  const url  = `${BASE}/repos/${owner}/${repo}/contents/${filePath}`;
+  const e = env();
+  const t = token ?? e.token;
+  const o = owner ?? e.owner;
+  const r = repo  ?? e.repo;
+  const url  = `${BASE}/repos/${o}/${r}/contents/${filePath}`;
   const body: Record<string, string> = {
     message,
     content: Buffer.from(content, 'utf-8').toString('base64'),
     branch,
   };
   if (sha) body.sha = sha;
-  const res = await fetch(url, { method: 'PUT', headers: headers(token), body: JSON.stringify(body) });
+  const res = await fetch(url, { method: 'PUT', headers: headers(t), body: JSON.stringify(body) });
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`GitHub PUT ${filePath}: ${res.status} ${err}`);
@@ -70,23 +83,27 @@ export async function putFile(
 /** Ensure a branch exists, creating it from BASE_BRANCH if needed. */
 export async function ensureBranch(
   branch: string,
-  token = GITHUB_TOKEN,
-  owner = OWNER,
-  repo  = REPO,
+  token?: string,
+  owner?: string,
+  repo?: string,
 ): Promise<void> {
-  const checkUrl = `${BASE}/repos/${owner}/${repo}/git/refs/heads/${branch}`;
-  const check    = await fetch(checkUrl, { headers: headers(token) });
-  if (check.status === 200) return; // already exists
+  const e = env();
+  const t = token ?? e.token;
+  const o = owner ?? e.owner;
+  const r = repo  ?? e.repo;
+  const b = e.branch;
+  const checkUrl = `${BASE}/repos/${o}/${r}/git/refs/heads/${branch}`;
+  const check    = await fetch(checkUrl, { headers: headers(t) });
+  if (check.status === 200) return;
 
-  // Get SHA of base branch tip
-  const baseRes  = await fetch(`${BASE}/repos/${owner}/${repo}/git/refs/heads/${BASE_BRANCH}`, { headers: headers(token) });
-  if (!baseRes.ok) throw new Error(`Cannot find base branch ${BASE_BRANCH}`);
+  const baseRes  = await fetch(`${BASE}/repos/${o}/${r}/git/refs/heads/${b}`, { headers: headers(t) });
+  if (!baseRes.ok) throw new Error(`Cannot find base branch ${b}`);
   const baseData = await baseRes.json() as { object: { sha: string } };
   const sha      = baseData.object.sha;
 
-  const createRes = await fetch(`${BASE}/repos/${owner}/${repo}/git/refs`, {
+  const createRes = await fetch(`${BASE}/repos/${o}/${r}/git/refs`, {
     method:  'POST',
-    headers: headers(token),
+    headers: headers(t),
     body:    JSON.stringify({ ref: `refs/heads/${branch}`, sha }),
   });
   if (!createRes.ok) {
@@ -96,10 +113,11 @@ export async function ensureBranch(
 }
 
 /** Derive a stable per-token working branch name ("design/abc123") */
-export function workingBranch(token = GITHUB_TOKEN): string {
-  // Use last 8 chars of token as a stable short ID
-  const id = token.slice(-8).replace(/[^a-z0-9]/gi, '').toLowerCase() || 'shared';
+export function workingBranch(token?: string): string {
+  const t  = token ?? env().token;
+  const id = t.slice(-8).replace(/[^a-z0-9]/gi, '').toLowerCase() || 'shared';
   return `design/${id}`;
 }
 
-export { OWNER, REPO, BASE_BRANCH, GITHUB_TOKEN };
+/** Convenience accessors for the route files that need raw values */
+export function getEnv() { return env(); }

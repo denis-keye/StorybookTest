@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { getFile, putFile, ensureBranch, workingBranch, GITHUB_TOKEN } from '@/lib/github-api';
+import { getFile, putFile, ensureBranch, workingBranch } from '@/lib/github-api';
 
 const STORIES_DIR    = 'stories';
 const COMPONENTS_DIR = 'components';
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
     const metaPath = await findMetaFilePath(storyId);
     if (!metaPath) return NextResponse.json({ error: 'Story file not found' }, { status: 404 });
 
-    const branch = workingBranch(GITHUB_TOKEN);
+    const branch = workingBranch();
     await ensureBranch(branch);
 
     let existing: Record<string, unknown> = {};

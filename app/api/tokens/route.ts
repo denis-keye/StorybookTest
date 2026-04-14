@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { getFile, putFile, ensureBranch, workingBranch, GITHUB_TOKEN } from '@/lib/github-api';
+import { getFile, putFile, ensureBranch, workingBranch } from '@/lib/github-api';
 import { parseTokens, updateTokenInCss } from '@/lib/css-tokens';
 
 const TOKENS_FILE = 'app/globals.css';
@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'name + value required' }, { status: 400 });
     }
 
-    const branch = workingBranch(GITHUB_TOKEN);
+    const branch = workingBranch();
     await ensureBranch(branch);
 
     const { content, sha } = await getFile(TOKENS_FILE, branch);

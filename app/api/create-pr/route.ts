@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { workingBranch, GITHUB_TOKEN, OWNER, REPO, BASE_BRANCH } from '@/lib/github-api';
+import { workingBranch, getEnv } from '@/lib/github-api';
 
 export async function POST(req: NextRequest) {
   try {
@@ -9,21 +9,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'title is required' }, { status: 400 });
     }
 
-    if (!GITHUB_TOKEN) {
+    const { token, owner, repo, branch: baseBranch } = getEnv();
+    if (!token) {
       return NextResponse.json({ error: 'GITHUB_TOKEN not configured on the server' }, { status: 400 });
     }
 
-    const branch  = workingBranch(GITHUB_TOKEN);
+    const branch  = workingBranch();
     const prBody  = `${body}\n\n---\n*Created from the Storybook Design Panel*`;
 
-    const apiRes = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/pulls`, {
+    const apiRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls`, {
       method: 'POST',
       headers: {
-        Authorization: `token ${GITHUB_TOKEN}`,
+        Authorization: `token ${token}`,
         'Content-Type': 'application/json',
         Accept:         'application/vnd.github.v3+json',
       },
-      body: JSON.stringify({ title, body: prBody, head: branch, base: BASE_BRANCH }),
+      body: JSON.stringify({ title, body: prBody, head: branch, base: baseBranch }),
     });
 
     if (!apiRes.ok) {

@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { getFile, putFile, ensureBranch, workingBranch, GITHUB_TOKEN } from '@/lib/github-api';
+import { getFile, putFile, ensureBranch, workingBranch } from '@/lib/github-api';
 import { storyExportName, patchStoryArg } from '@/lib/css-tokens';
 
 const STORIES_DIR    = 'stories';
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Story file not found', storyId }, { status: 404 });
     }
 
-    const branch = workingBranch(GITHUB_TOKEN);
+    const branch = workingBranch();
     await ensureBranch(branch);
 
     const { content: src, sha } = await getFile(filePath, branch);

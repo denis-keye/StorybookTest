@@ -159,6 +159,24 @@ function tailwindClassToToken(cls: string): { prop: 'bg' | 'text' | 'border'; to
   return { prop: type as 'bg' | 'text' | 'border', token: `--${name}` };
 }
 
+/** Convert any CSS color string to #rrggbb via canvas pixel read.
+ *  Works for oklch, display-p3, rgb, hsl — anything the browser understands. */
+function cssColorToHex(cssColor: string): string {
+  if (!cssColor || cssColor === 'transparent' || cssColor === 'rgba(0, 0, 0, 0)') return 'transparent';
+  try {
+    const cv = document.createElement('canvas');
+    cv.width = 1; cv.height = 1;
+    const ctx = cv.getContext('2d');
+    if (!ctx) return rgbToHex(cssColor);
+    ctx.fillStyle = cssColor;
+    ctx.fillRect(0, 0, 1, 1);
+    const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+    return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
+  } catch {
+    return rgbToHex(cssColor);
+  }
+}
+
 function readStyles(el: Element): Record<string, string> | null {
   if (!(el instanceof HTMLElement)) return null;
   const c    = getComputedStyle(el);
@@ -178,9 +196,9 @@ function readStyles(el: Element): Record<string, string> | null {
   }
 
   return {
-    backgroundColor: rgbToHex(c.backgroundColor),
-    color:           rgbToHex(c.color),
-    borderColor:     rgbToHex(c.borderColor),
+    backgroundColor: cssColorToHex(c.backgroundColor),
+    color:           cssColorToHex(c.color),
+    borderColor:     cssColorToHex(c.borderColor),
     bgToken,
     textToken,
     borderToken,

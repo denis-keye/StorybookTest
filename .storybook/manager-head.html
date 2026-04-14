@@ -245,16 +245,24 @@
     };
 
     function patch() {
-      /* ── 1. Hide ALL panel icon buttons (in toolbar and in panel header) ── */
-      /* Scan every button; hide those that contain only an SVG (icon-only) and
-         sit inside the toolbar or adjacent to the panel tablist */
-      document.querySelectorAll('[role="toolbar"] button').forEach(function(btn) {
-        /* Only has SVG children (no text) → it's an icon-only layout button */
-        var text = (btn.textContent || '').trim();
-        if (!text && btn.querySelector('svg')) {
-          btn.style.setProperty('display', 'none', 'important');
-        }
+      /* ── 1. Hide the two panel icon buttons by their exact titles ── */
+      [
+        'Change addon orientation',
+        'Hide addons',
+        'Addon orientation',
+        'Close addons',
+      ].forEach(function(t) {
+        document.querySelectorAll('[title*="' + t + '"]').forEach(function(el) {
+          el.style.setProperty('display', 'none', 'important');
+        });
       });
+      /* Also hide their wrapper div (sibling of tablist) */
+      var tablist0 = document.querySelector('[role="tablist"]');
+      if (tablist0 && tablist0.parentElement) {
+        Array.prototype.forEach.call(tablist0.parentElement.children, function(child) {
+          if (child !== tablist0) child.style.setProperty('display', 'none', 'important');
+        });
+      }
       var tablist = document.querySelector('[role="tablist"]');
       if (tablist) {
         var parent = tablist.parentElement;
@@ -272,14 +280,15 @@
           tablist.style.setProperty('overflow', 'hidden', 'important');
         }
 
-        /* ── 2. Full-width tabs + hide numeric count badges ── */
+        /* ── 2. Full-width tabs + hide numeric count badge (div or span) ── */
         tablist.querySelectorAll('[role="tab"]').forEach(function(tab) {
           tab.style.setProperty('flex', '1', 'important');
           tab.style.setProperty('justify-content', 'center', 'important');
           tab.style.setProperty('min-width', '0', 'important');
-          tab.querySelectorAll('span').forEach(function(sp) {
-            if (/^\d+$/.test((sp.textContent || '').trim())) {
-              sp.style.setProperty('display', 'none', 'important');
+          /* Count badge is a div/span containing only a number */
+          tab.querySelectorAll('div, span').forEach(function(el) {
+            if (/^\d+$/.test((el.textContent || '').trim())) {
+              el.style.setProperty('display', 'none', 'important');
             }
           });
         });

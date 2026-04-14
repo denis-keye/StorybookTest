@@ -102,24 +102,37 @@
     color: var(--sb-accent) !important;
   }
 
-  /* ── Panel tabs — terminal style ───────────────────────────────────────── */
-  /* The tablist sits inside a flex parent — make the whole chain stretch */
+  /* ── Panel tab bar — kill all padding on the container chain ────────── */
+  /* sb-bar is the direct wrapper of the tablist row */
+  [class*="sb-bar"],
+  #storybook-panel-root > div > div:first-child,
+  [role="tablist"] > *,
+  [role="tablist"] ~ * {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  /* Force every flex ancestor of the tablist to stretch full width */
   [role="tablist"],
   [role="tablist"] > *:not([role="tab"]) {
     width: 100% !important;
     flex: 1 !important;
+    min-width: 0 !important;
   }
   [role="tablist"] {
     background: var(--sb-bg2) !important;
     border-bottom: 1px solid var(--sb-border) !important;
     border-top: none !important;
     padding: 0 !important;
+    margin: 0 !important;
     gap: 0 !important;
     height: 48px !important;
     display: flex !important;
     flex-direction: row !important;
     white-space: nowrap !important;
-    overflow: hidden !important;
+    overflow: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
   }
 
   [role="tab"] {
@@ -301,11 +314,28 @@
           tablist.style.setProperty('overflow', 'hidden', 'important');
         }
 
-        /* ── 2. Full-width tabs + hide numeric count badge (div or span) ── */
+        /* ── 2. Kill padding on grandparent containers causing right gap ── */
+        var el = tablist.parentElement;
+        for (var i = 0; i < 4 && el && el !== document.body; i++) {
+          el.style.setProperty('padding', '0', 'important');
+          el.style.setProperty('margin', '0', 'important');
+          el.style.setProperty('width', '100%', 'important');
+          el = el.parentElement;
+        }
+
+        /* ── 3. Full-width tabs + blue active color + hide count badge ── */
         tablist.querySelectorAll('[role="tab"]').forEach(function(tab) {
           tab.style.setProperty('flex', '1', 'important');
           tab.style.setProperty('justify-content', 'center', 'important');
           tab.style.setProperty('min-width', '0', 'important');
+          tab.style.setProperty('border', 'none', 'important');
+          tab.style.setProperty('border-bottom', 'none', 'important');
+          tab.style.setProperty('box-shadow', 'none', 'important');
+          /* Active tab — force blue text */
+          var isActive = tab.getAttribute('aria-selected') === 'true'
+            || tab.className.includes('tabbutton-active');
+          tab.style.setProperty('color', isActive ? '#029cfd' : 'rgba(232,232,237,0.40)', 'important');
+          tab.style.setProperty('background', isActive ? 'rgba(2,156,253,0.06)' : 'transparent', 'important');
           /* Count badge is a div/span containing only a number */
           tab.querySelectorAll('div, span').forEach(function(el) {
             if (/^\d+$/.test((el.textContent || '').trim())) {

@@ -15,10 +15,12 @@ const config: StorybookConfig = {
     name: '@storybook/react-vite',
     options: {},
   },
-  async viteFinal(config) {
+  async viteFinal(config, { configType }) {
     const { mergeConfig } = await import('vite');
     const { default: tailwindVite } = await import('@tailwindcss/vite');
     return mergeConfig(config, {
+      // In production (static build for Vercel), Storybook lives at /sb/
+      base: configType === 'PRODUCTION' ? '/sb/' : '/',
       plugins: [
         tailwindVite(),
         contextPlugin(),

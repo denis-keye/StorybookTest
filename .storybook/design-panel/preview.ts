@@ -326,6 +326,12 @@ channel.on('DESIGN/RESET_ALL', () => _doResetAll());
 // apply `background-color: var(--foo)` to it, and read back getComputedStyle
 // .backgroundColor which the browser fully resolves to rgb().
 channel.on('DESIGN/RESOLVE_TOKENS', (names: string[]) => {
+  // Use a canvas to resolve colors — canvas always converts to sRGB rgb()
+  // so oklch / display-p3 / etc. all give correct values even in Safari.
+  const canvas = document.createElement('canvas');
+  canvas.width = 1; canvas.height = 1;
+  const ctx = canvas.getContext('2d');
+
   const probe = document.createElement('div');
   probe.style.cssText = 'position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;';
   document.body.appendChild(probe);
@@ -334,7 +340,15 @@ channel.on('DESIGN/RESOLVE_TOKENS', (names: string[]) => {
   for (const name of names) {
     probe.style.backgroundColor = `var(${name})`;
     const computed = getComputedStyle(probe).backgroundColor;
-    if (computed && computed !== 'rgba(0, 0, 0, 0)' && computed !== 'transparent') {
+    if (!computed || computed === 'rgba(0, 0, 0, 0)' || computed === 'transparent') continue;
+
+    if (ctx) {
+      ctx.clearRect(0, 0, 1, 1);
+      ctx.fillStyle = computed;
+      ctx.fillRect(0, 0, 1, 1);
+      const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+      resolved[name] = '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
+    } else {
       resolved[name] = rgbToHex(computed);
     }
   }

@@ -2656,10 +2656,15 @@ export function DesignPanel({ active }: { active: boolean }) {
                   disabled={pendingInline.length === 0}
                   style={{ ...s.btn, opacity: pendingInline.length === 0 ? 0.3 : 1 }}
                   title={pendingInline.length > 0 ? `Undo: ${pendingInline[pendingInline.length - 1].label}` : 'Nothing to undo'}>
-                  ⏎
+                  Undo
                 </button>
-                <button onClick={resetAll} style={s.btn} title="Reset all live overrides">Reset</button>
-                <button onClick={() => { channel.emit('DESIGN/BUILD_TREE'); channel.emit('DESIGN/INSPECT'); setSelectedId(null); setSaveReport(null); }} style={s.btn} title="Refresh">↺</button>
+                <button
+                  onClick={resetAll}
+                  disabled={pendingInline.length === 0 && overrides.length === 0 && !pendingText}
+                  style={{ ...s.btn, opacity: (pendingInline.length === 0 && overrides.length === 0 && !pendingText) ? 0.3 : 1 }}
+                  title="Clear all unsaved changes">
+                  Clear
+                </button>
                 <button
                   onClick={saveToCode}
                   disabled={saving || pendingCount === 0}

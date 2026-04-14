@@ -844,6 +844,14 @@ function SubLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+function InlineLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ fontSize: 10, color: SB.textMuted, marginBottom: 5, fontFamily: SB.font }}>
+      {children}
+    </div>
+  );
+}
+
 function BaseVariantSection({ storyId, styles, classList, fetchedVariants, selectedPath, channel, api, onAddClass, onRemoveClass, onApplyVariant }: {
   storyId:         string;
   styles:          ElementStyles | null;
@@ -918,9 +926,10 @@ function BaseVariantSection({ storyId, styles, classList, fetchedVariants, selec
     setActiveMode(a => ({ ...a, [varName]: val }));
   };
 
-  // ── Editable base name state ──
-  const [baseDraft, setBaseDraft]       = useState('');
-  const [editingBase, setEditingBase]   = useState(false);
+  // ── Editable base name — persists in state, doesn't reset on blur ──
+  const [baseName, setBaseName] = useState(componentName);
+  // Keep in sync if story changes
+  useEffect(() => { setBaseName(componentName); }, [componentName]);
 
   // ── Derive current variant's display name from active story ──
   const activeStory = storyVariants.find(sv => sv.slug === currentVariantSlug);
@@ -974,50 +983,35 @@ function BaseVariantSection({ storyId, styles, classList, fetchedVariants, selec
     <div style={{ padding: '12px 14px 14px' }}>
 
       {/* ══ BASE ══ */}
-      <SubLabel>Base</SubLabel>
-      {editingBase ? (
-        <input
-          autoFocus
-          style={nameBoxStyle}
-          value={baseDraft}
-          onChange={e => setBaseDraft(e.target.value)}
-          onBlur={() => setEditingBase(false)}
-          onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') setEditingBase(false); }}
-          spellCheck={false}
-        />
-      ) : (
-        <div style={{ ...nameBoxStyle, cursor: 'pointer' }} onClick={() => { setBaseDraft(componentName); setEditingBase(true); }}>
-          {componentName || '—'}
-        </div>
-      )}
+      <InlineLabel>Base</InlineLabel>
+      <input
+        style={nameBoxStyle}
+        value={baseName}
+        onChange={e => setBaseName(e.target.value)}
+        spellCheck={false}
+        title="Component base name"
+      />
       <StatsRow st={styles} />
 
       {sectionDivider}
 
       {/* ══ VARIANT ══ */}
-      <SubLabel>Variant</SubLabel>
+      <InlineLabel>Variant</InlineLabel>
       {storyVariants.length > 1 ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {/* Active variant — large box */}
-          <div style={{ ...nameBoxStyle, cursor: 'default' }}>
-            {variantDisplayName}
-          </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {/* Variant selector — acts as the big box, navigates on change */}
+          <select
+            value={currentVariantSlug}
+            onChange={e => api.selectStory?.(componentPrefix, e.target.value)}
+            style={{ ...nameBoxStyle, cursor: 'pointer', appearance: 'none', WebkitAppearance: 'none' } as React.CSSProperties}>
+            {storyVariants.map(sv => (
+              <option key={sv.id} value={sv.slug}>{sv.name}</option>
+            ))}
+          </select>
           <StatsRow st={styles} />
-          {/* Switcher pills */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 2 }}>
-            {storyVariants.map(sv => {
-              const isActive = sv.slug === currentVariantSlug;
-              return (
-                <button key={sv.id} onClick={() => api.selectStory?.(componentPrefix, sv.slug)}
-                  style={pillStyle(isActive)}>
-                  {sv.name}
-                </button>
-              );
-            })}
-          </div>
         </div>
       ) : (
-        <div style={{ ...nameBoxStyle, cursor: 'default', opacity: 0.5 }}>
+        <div style={{ ...nameBoxStyle, cursor: 'default', opacity: 0.6 }}>
           {variantDisplayName || '—'}
         </div>
       )}
@@ -1042,7 +1036,7 @@ function BaseVariantSection({ storyId, styles, classList, fetchedVariants, selec
       {sectionDivider}
 
       {/* ══ CLASS ══ */}
-      <SubLabel>Class</SubLabel>
+      <InlineLabel>Class</InlineLabel>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
         {semantics.map(cls => (
           <span key={cls} style={{ ...pillStyle(true), padding: '2px 6px 2px 8px', fontSize: 11, fontFamily: SB.mono }}>
@@ -1086,7 +1080,7 @@ function BaseVariantSection({ storyId, styles, classList, fetchedVariants, selec
       {sectionDivider}
 
       {/* ══ STATE ══ */}
-      <SubLabel>State</SubLabel>
+      <InlineLabel>State</InlineLabel>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
         {INTERACTION_STATES.map(({ label, pseudo }) => (
           <button key={pseudo} onClick={() => toggleState(pseudo)} style={pillStyle(activeStates.has(pseudo))}>

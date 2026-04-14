@@ -1,7 +1,5 @@
-import type { Preview } from '@storybook/react';
+import type { Preview, Decorator } from '@storybook/react';
 import '../app/globals.css';
-
-export const decorators: Preview['decorators'] = [];
 
 export const parameters = {
   controls: {
@@ -12,12 +10,30 @@ export const parameters = {
   },
 };
 
+const withTheme: Decorator = (Story, context) => {
+  const theme = context.globals?.theme ?? 'dark';
+  if (typeof document !== 'undefined') {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }
+  return Story();
+};
+
 const preview: Preview = {
+  globalTypes: {
+    theme: {
+      name: 'Theme',
+      defaultValue: 'dark',
+    },
+  },
   parameters: {
     layout: 'centered',
     ...parameters,
   },
-  decorators,
+  decorators: [withTheme],
 };
 
 export default preview;

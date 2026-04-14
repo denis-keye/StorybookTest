@@ -1434,7 +1434,8 @@ export function DesignPanel({ active }: { active: boolean }) {
   const canvasBg = previewMode === 'dark' ? canvasBgDark : canvasBgLight;
 
   const applyCanvasTheme = useCallback((mode: 'light' | 'dark', bg: string) => {
-    try { channel.emit('DESIGN/SET_THEME', { theme: mode }); } catch { /* not ready */ }
+    // Use Storybook globals API — this is the reliable cross-iframe mechanism
+    try { channel.emit('UPDATE_GLOBALS', { globals: { theme: mode } }); } catch { /* not ready */ }
     try { channel.emit('DESIGN/SET_CANVAS_BG', { color: bg }); } catch { /* not ready */ }
   }, [channel]);
 
@@ -1442,8 +1443,7 @@ export function DesignPanel({ active }: { active: boolean }) {
     applyCanvasTheme(previewMode, canvasBg);
   }, [previewMode, canvasBg, applyCanvasTheme]);
 
-  // Re-apply theme whenever the preview iframe signals it's ready (it may have loaded
-  // after the panel already emitted SET_THEME, so the initial emit was lost).
+  // Re-apply theme whenever the preview iframe signals it's ready
   useEffect(() => {
     const onReady = () => applyCanvasTheme(previewMode, canvasBg);
     channel.on('DESIGN/PREVIEW_READY', onReady);
@@ -1553,7 +1553,7 @@ export function DesignPanel({ active }: { active: boolean }) {
       try { channel.emit('DESIGN/BUILD_TREE'); } catch { /* channel not ready */ }
       try { channel.emit('DESIGN/INSPECT'); } catch { /* channel not ready */ }
       // Re-apply theme so new story iframe picks up the correct .dark class
-      try { channel.emit('DESIGN/SET_THEME', { theme: previewMode }); } catch { /* not ready */ }
+      try { channel.emit('UPDATE_GLOBALS', { globals: { theme: previewMode } }); } catch { /* not ready */ }
       try { channel.emit('DESIGN/SET_CANVAS_BG', { color: canvasBg }); } catch { /* not ready */ }
       // Re-resolve token colors via browser after story CSS context is ready
       if (colorNamesRef.current.length > 0) {
@@ -1925,8 +1925,8 @@ export function DesignPanel({ active }: { active: boolean }) {
                 <div style={{ fontSize: 10, color: SB.textMuted, marginBottom: 5 }}>New story variant — copies current args</div>
                 {variantStatus === 'done' ? (
                   <div style={{ fontSize: 11 }}>
-                    <div style={{ color: SB.success }}>✓ Variant added to GitHub</div>
-                    <div style={{ color: SB.textMuted, marginTop: 3 }}>It will appear in the sidebar after the next Vercel deploy (push to main triggers a rebuild).</div>
+                    <div style={{ color: SB.success }}>✓ Committed to main</div>
+                    <div style={{ color: SB.textMuted, marginTop: 3 }}>Vercel will auto-deploy in ~1 min — refresh to see it in the sidebar.</div>
                   </div>
                 ) : (
                   <>

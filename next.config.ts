@@ -13,16 +13,6 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-  async rewrites() {
-    return [
-      {
-        // Serve the static Storybook build under /storybook
-        // (storybook-static/ is output by `npm run build-storybook`)
-        source: '/storybook/:path*',
-        destination: '/storybook-static/:path*',
-      },
-    ];
-  },
 };
 
 export default nextConfig;

@@ -44,3 +44,4 @@ next-env.d.ts
 storybook-static/
 .storybook-out/
 storybook-static
+/public/storybook

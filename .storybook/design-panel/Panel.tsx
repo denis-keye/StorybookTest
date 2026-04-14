@@ -1397,7 +1397,9 @@ export function DesignPanel({ active }: { active: boolean }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<number[]>([]);
   const [styles,     setStyles]     = useState<ElementStyles | null>(null);
-  const [overrides,  setOverrides]  = useState<Array<{ prop: string; value: string }>>([]);
+  const [overrides,  setOverrides]  = useState<Array<{ prop: string; value: string }>>(() => {
+    try { return JSON.parse(localStorage.getItem('sb-design-overrides') ?? '[]'); } catch { return []; }
+  });
   const [saved,      setSaved]      = useState<string | null>(null);
   const [layerNames,      setLayerNames]      = useState<Record<string, string>>({});
   const [layerNamesDirty, setLayerNamesDirty] = useState(false);
@@ -1436,7 +1438,7 @@ export function DesignPanel({ active }: { active: boolean }) {
 
   const applyCanvasTheme = useCallback((mode: 'light' | 'dark', bg: string) => {
     // Use Storybook globals API — this is the reliable cross-iframe mechanism
-    try { channel.emit('UPDATE_GLOBALS', { globals: { theme: mode } }); } catch { /* not ready */ }
+    try { channel.emit('updateGlobals', { globals: { theme: mode } }); } catch { /* not ready */ }
     try { channel.emit('DESIGN/SET_CANVAS_BG', { color: bg }); } catch { /* not ready */ }
   }, [channel]);
 
@@ -1444,9 +1446,18 @@ export function DesignPanel({ active }: { active: boolean }) {
     applyCanvasTheme(previewMode, canvasBg);
   }, [previewMode, canvasBg, applyCanvasTheme]);
 
-  // Re-apply theme whenever the preview iframe signals it's ready
+  // Re-apply theme + persisted overrides whenever the preview iframe signals it's ready
   useEffect(() => {
-    const onReady = () => applyCanvasTheme(previewMode, canvasBg);
+    const onReady = () => {
+      applyCanvasTheme(previewMode, canvasBg);
+      // Re-apply any persisted overrides so the visual state matches after reload
+      const saved = overridesRef.current;
+      if (saved.length > 0) {
+        const map: Record<string, string> = {};
+        saved.forEach(o => { map[o.prop] = o.value; });
+        try { channel.emit('DESIGN/APPLY', map); } catch { /* ignore */ }
+      }
+    };
     channel.on('DESIGN/PREVIEW_READY', onReady);
     return () => { channel.off('DESIGN/PREVIEW_READY', onReady); };
   }, [channel, previewMode, canvasBg, applyCanvasTheme]);
@@ -1554,7 +1565,7 @@ export function DesignPanel({ active }: { active: boolean }) {
       try { channel.emit('DESIGN/BUILD_TREE'); } catch { /* channel not ready */ }
       try { channel.emit('DESIGN/INSPECT'); } catch { /* channel not ready */ }
       // Re-apply theme so new story iframe picks up the correct .dark class
-      try { channel.emit('UPDATE_GLOBALS', { globals: { theme: previewMode } }); } catch { /* not ready */ }
+      try { channel.emit('updateGlobals', { globals: { theme: previewMode } }); } catch { /* not ready */ }
       try { channel.emit('DESIGN/SET_CANVAS_BG', { color: canvasBg }); } catch { /* not ready */ }
       // Re-resolve token colors via browser after story CSS context is ready
       if (colorNamesRef.current.length > 0) {
@@ -1658,15 +1669,11 @@ export function DesignPanel({ active }: { active: boolean }) {
     setSaving(false);
     setSaveReport({ entries });
 
-    // After a successful save: clear the overrides state so the badge resets,
-    // but keep the INLINE overrides alive briefly so there is no visual flash
-    // between the save and Vite's CSS HMR replacing the stylesheet value.
+    // After save: keep overrides applied (no HMR on Vercel static builds).
+    // The override badge resets via setSavedCount; visual state persists until
+    // the user explicitly clicks Reset or a new deploy updates the CSS.
     if (entries.every(e => e.ok)) {
       setSavedCount(c => c + entries.length);
-      setOverrides([]);
-      // Give Vite ~1.5 s to HMR the CSS file; then clear the redundant inline
-      // overrides (by then the stylesheet value matches, so no visual change).
-      setTimeout(() => channel.emit('DESIGN/RESET_ALL'), 1500);
     }
   }, [saving, overrides, pendingText, pendingInline, layerNamesDirty, layerNames, storyId, channel]);
 
@@ -1682,7 +1689,12 @@ export function DesignPanel({ active }: { active: boolean }) {
 
   // ── Token overrides ─────────────────────────────────────────────────────────
   const applyOverride = useCallback((prop: string, value: string) => {
-    setOverrides(prev => { const n = prev.filter(o => o.prop !== prop); if (value) n.push({ prop, value }); return n; });
+    setOverrides(prev => {
+      const n = prev.filter(o => o.prop !== prop);
+      if (value) n.push({ prop, value });
+      try { localStorage.setItem('sb-design-overrides', JSON.stringify(n)); } catch { /* ignore */ }
+      return n;
+    });
     channel.emit('DESIGN/APPLY', { [prop]: value });
   }, [channel]);
 
@@ -1694,6 +1706,7 @@ export function DesignPanel({ active }: { active: boolean }) {
   const resetAll = useCallback(() => {
     setOverrides([]);
     setPendingInline([]);
+    try { localStorage.removeItem('sb-design-overrides'); } catch { /* ignore */ }
     channel.emit('DESIGN/RESET_ALL');
   }, [channel]);
 

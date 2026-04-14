@@ -1553,13 +1553,7 @@ export function DesignPanel({ active }: { active: boolean }) {
       })
       .catch(() => {});
 
-    // On the very first story shown in this browser session, clear any stale
-    // overrides that survived a server restart via WS reconnect.
-    if (!didInitRef.current) {
-      didInitRef.current = true;
-      setOverrides([]);
-      try { channel.emit('DESIGN/RESET_ALL'); } catch { /* channel not ready */ }
-    }
+    didInitRef.current = true;
 
     const t = setTimeout(() => {
       try { channel.emit('DESIGN/BUILD_TREE'); } catch { /* channel not ready */ }

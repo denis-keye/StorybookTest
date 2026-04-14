@@ -1470,20 +1470,26 @@ export function DesignPanel({ active }: { active: boolean }) {
     applyCanvasTheme(previewMode, canvasBg);
   }, [previewMode, canvasBg, applyCanvasTheme]);
 
-  // Re-apply theme + persisted overrides whenever the preview iframe signals it's ready
+  // Re-apply theme + overrides when the story finishes rendering in the iframe.
+  // 'storyRendered' is Storybook's built-in manager-side event — more reliable
+  // than a custom channel event from preview.ts which may fire before the bridge is ready.
   useEffect(() => {
-    const onReady = () => {
+    const onRendered = () => {
       applyCanvasTheme(previewMode, canvasBg);
-      // Re-apply any persisted overrides so the visual state matches after reload
-      const saved = overridesRef.current;
-      if (saved.length > 0) {
+      const cur = overridesRef.current;
+      if (cur.length > 0) {
         const map: Record<string, string> = {};
-        saved.forEach(o => { map[o.prop] = o.value; });
+        cur.forEach(o => { map[o.prop] = o.value; });
         try { channel.emit('DESIGN/APPLY', map); } catch { /* ignore */ }
       }
     };
-    channel.on('DESIGN/PREVIEW_READY', onReady);
-    return () => { channel.off('DESIGN/PREVIEW_READY', onReady); };
+    channel.on('storyRendered', onRendered);
+    // Keep PREVIEW_READY as a secondary fallback
+    channel.on('DESIGN/PREVIEW_READY', onRendered);
+    return () => {
+      channel.off('storyRendered', onRendered);
+      channel.off('DESIGN/PREVIEW_READY', onRendered);
+    };
   }, [channel, previewMode, canvasBg, applyCanvasTheme]);
 
   // ── Custom global variants ────────────────────────────────────────────────────
@@ -1579,6 +1585,15 @@ export function DesignPanel({ active }: { active: boolean }) {
 
     didInitRef.current = true;
 
+    const applyOverrides = () => {
+      const cur = overridesRef.current;
+      if (cur.length > 0) {
+        const map: Record<string, string> = {};
+        cur.forEach(o => { map[o.prop] = o.value; });
+        try { channel.emit('DESIGN/APPLY', map); } catch { /* not ready */ }
+      }
+    };
+
     const t = setTimeout(() => {
       try { channel.emit('DESIGN/BUILD_TREE'); } catch { /* channel not ready */ }
       try { channel.emit('DESIGN/INSPECT'); } catch { /* channel not ready */ }
@@ -1589,15 +1604,13 @@ export function DesignPanel({ active }: { active: boolean }) {
       if (colorNamesRef.current.length > 0) {
         try { channel.emit('DESIGN/RESOLVE_TOKENS', colorNamesRef.current); } catch { /* not ready */ }
       }
-      // Re-apply any active token overrides to the newly loaded story
-      const cur = overridesRef.current;
-      if (cur.length > 0) {
-        const map: Record<string, string> = {};
-        cur.forEach(o => { map[o.prop] = o.value; });
-        channel.emit('DESIGN/APPLY', map);
-      }
-    }, 300);
-    return () => clearTimeout(t);
+      applyOverrides();
+    }, 500);
+
+    // Second attempt at 2s — catches slow iframe loads on Vercel static serving
+    const t2 = setTimeout(applyOverrides, 2000);
+
+    return () => { clearTimeout(t); clearTimeout(t2); };
   }, [active, storyId, previewMode, canvasBg, channel]);
 
   useEffect(() => {
